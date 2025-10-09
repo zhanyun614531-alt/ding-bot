@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ding-bot
+    env: docker
+    plan: free
+    docker:
+      dockerfile: Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHON_VERSION
+        value: 3.11.8
