@@ -79,20 +79,15 @@ def generate_dingtalk_signature(timestamp: str, secret: str) -> str:
 async def upload_file_to_dingtalk(file_data: bytes, file_name: str, file_type: str = "file") -> Dict[str, Any]:
     """
     上传文件到钉钉服务器并获取media_id
-
-    参数:
-    - file_data: 文件二进制数据
-    - file_name: 文件名
-    - file_type: 文件类型 (image, voice, file)
-
-    返回:
-    - 包含media_id的字典或错误信息
     """
     try:
         timestamp = str(round(time.time() * 1000))
         sign = generate_dingtalk_signature(timestamp, ROBOT_SECRET)
 
         upload_url = f'https://oapi.dingtalk.com/robot/upload?access_token={ROBOT_ACCESS_TOKEN}&timestamp={timestamp}&sign={sign}'
+
+        app_logger.info(f"📎 准备上传文件到: {upload_url}")
+        app_logger.info(f"📎 文件信息: {file_name}, 大小: {len(file_data)} bytes, 类型: {file_type}")
 
         # 准备文件上传
         files = {
@@ -104,10 +99,14 @@ async def upload_file_to_dingtalk(file_data: bytes, file_name: str, file_type: s
         }
 
         loop = asyncio.get_event_loop()
+        app_logger.info("🔄 发送文件上传请求...")
         response = await loop.run_in_executor(
             None,
             lambda: requests.post(upload_url, files=files, data=data, timeout=30)
         )
+
+        app_logger.info(f"📎 上传响应状态码: {response.status_code}")
+        app_logger.info(f"📎 上传响应内容: {response.text}")
 
         if response.status_code == 200:
             result = response.json()
@@ -161,11 +160,18 @@ async def send_file_message(media_id: str, file_name: str, at_user_ids=None, at_
 
         headers = {'Content-Type': 'application/json'}
 
+        app_logger.info(f"📤 发送文件消息: {file_name}, media_id: {media_id}")
+        app_logger.info(f"📤 请求URL: {url}")
+        app_logger.info(f"📤 请求体: {json.dumps(body, ensure_ascii=False)}")
+
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(
             None,
             lambda: requests.post(url, json=body, headers=headers, timeout=10)
         )
+
+        app_logger.info(f"📤 文件消息响应状态码: {resp.status_code}")
+        app_logger.info(f"📤 文件消息响应内容: {resp.text}")
 
         if resp.status_code == 200:
             result = resp.json()
@@ -187,11 +193,6 @@ async def send_file_message(media_id: str, file_name: str, at_user_ids=None, at_
 async def send_pdf_via_dingtalk(pdf_binary: bytes, stock_name: str, at_user_ids=None):
     """
     通过钉钉发送PDF文件
-
-    参数:
-    - pdf_binary: PDF二进制数据
-    - stock_name: 股票名称（用于文件名）
-    - at_user_ids: 需要@的用户ID列表
     """
     try:
         # 生成文件名
@@ -201,23 +202,29 @@ async def send_pdf_via_dingtalk(pdf_binary: bytes, stock_name: str, at_user_ids=
         app_logger.info(f"📤 开始上传PDF文件: {file_name}, 大小: {len(pdf_binary)} 字节")
 
         # 第一步：上传文件到钉钉服务器
+        app_logger.info("🔄 开始上传文件到钉钉服务器...")
         upload_result = await upload_file_to_dingtalk(pdf_binary, file_name, "file")
 
         if not upload_result["success"]:
             error_msg = f"❌ PDF文件上传失败: {upload_result.get('error', '未知错误')}"
+            app_logger.error(error_msg)
             await send_official_message(error_msg, at_user_ids=at_user_ids)
             return False
 
+        app_logger.info(f"✅ 文件上传成功，media_id: {upload_result['media_id']}")
+
         # 第二步：发送文件消息
-        media_id = upload_result["media_id"]
-        send_success = await send_file_message(media_id, file_name, at_user_ids=at_user_ids)
+        app_logger.info("🔄 开始发送文件消息...")
+        send_success = await send_file_message(upload_result["media_id"], file_name, at_user_ids=at_user_ids)
 
         if send_success:
             success_msg = f"✅ 股票分析报告已生成并发送\n📈 股票: {stock_name}\n📄 文件名: {file_name}"
+            app_logger.info(success_msg)
             await send_official_message(success_msg, at_user_ids=at_user_ids)
             return True
         else:
-            error_msg = f"❌ 文件消息发送失败，但文件已上传 (media_id: {media_id})"
+            error_msg = f"❌ 文件消息发送失败，但文件已上传 (media_id: {upload_result['media_id']})"
+            app_logger.error(error_msg)
             await send_official_message(error_msg, at_user_ids=at_user_ids)
             return False
 
@@ -490,6 +497,37 @@ async def test_playwright():
     except Exception as e:
         return {"status": "error", "message": f"Playwright测试失败: {str(e)}"}
 
+@app.get("/test-file-upload")
+async def test_file_upload():
+    """测试文件上传功能"""
+    try:
+        # 创建一个简单的测试PDF
+        from reportlab.pdfgen import canvas
+        from io import BytesIO
+        
+        buffer = BytesIO()
+        p = canvas.Canvas(buffer)
+        p.drawString(100, 100, "测试PDF文件")
+        p.showPage()
+        p.save()
+        
+        pdf_data = buffer.getvalue()
+        buffer.close()
+        
+        # 测试上传
+        result = await send_pdf_via_dingtalk(pdf_data, "测试股票", [])
+        
+        return JSONResponse({
+            "success": result,
+            "message": "文件上传测试完成",
+            "pdf_size": len(pdf_data)
+        })
+        
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        })
 
 if __name__ == '__main__':
     import uvicorn
