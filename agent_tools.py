@@ -30,8 +30,6 @@ class StockAnalysisPDFAgent:
 
     def __init__(self):
         # 豆包客户端配置 - 使用安全的初始化方式
-        def __init__(self):
-        # 豆包客户端配置 - 使用安全的初始化方式
         self.doubao_client = create_openai_client()
         self.model_id = "bot-20250907084333-cbvff"
 
