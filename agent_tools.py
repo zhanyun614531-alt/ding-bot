@@ -18,16 +18,21 @@ import asyncio
 # 加载环境变量
 load_dotenv()
 
+def create_openai_client():
+    """安全地创建OpenAI客户端"""
+    return OpenAI(
+        base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
+        api_key=os.environ.get("ARK_API_KEY")
+    )
 
 class StockAnalysisPDFAgent:
     """股票分析PDF生成器 - 纯内存操作"""
 
     def __init__(self):
-        # 豆包客户端配置
-        self.doubao_client = OpenAI(
-            base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
-            api_key=os.environ.get("ARK_API_KEY")
-        )
+        # 豆包客户端配置 - 使用安全的初始化方式
+        def __init__(self):
+        # 豆包客户端配置 - 使用安全的初始化方式
+        self.doubao_client = create_openai_client()
         self.model_id = "bot-20250907084333-cbvff"
 
         # 系统提示词 - AI金融分析师角色
@@ -1201,14 +1206,11 @@ class GoogleCalendarManager:
 
 class DeepseekAgent:
     """智能助手Agent - 集成股票分析功能"""
-
     def __init__(self):
-        self.client = OpenAI(
-            base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
-            api_key=os.environ.get("ARK_API_KEY")
-        )
+        # 使用安全的客户端初始化方式
+        self.client = create_openai_client()
         self.model_id = "bot-20250907084333-cbvff"
-
+    
         # 初始化Google日历管理器
         self.calendar_manager = GoogleCalendarManager()
 
