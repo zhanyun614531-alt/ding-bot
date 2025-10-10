@@ -336,6 +336,10 @@ HTML格式要求：
                         '--disable-client-side-phishing-detection',
                         '--disable-crash-reporter',
                         '--disable-oopr-debug-crash-dump'
+                        '--single-process',  # 单进程模式，减少内存使用
+                        '--memory-pressure-off',  # 禁用内存压力监控
+                        '--no-zygote',
+                        '--max-old-space-size=1024'  # 限制Node.js内存使用（如果适用）
                     ]
                 )
 
