@@ -13,3 +13,4 @@ websockets==12.0
 openai==1.10.0
 httpx==0.25.2
 reportlab==3.6.12
+qiniu==7.14.0
