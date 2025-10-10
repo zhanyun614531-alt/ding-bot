@@ -14,6 +14,7 @@ import pytz
 from playwright.async_api import async_playwright
 import re
 import asyncio
+import traceback
 
 # 加载环境变量
 load_dotenv()
@@ -125,70 +126,222 @@ HTML格式要求：
                 print(f"🔧 API响应详情: {e.response}")
             return None
 
-    async def html_to_pdf(self, html_content):
+    # async def html_to_pdf(self, html_content):
+    #     """
+    #     使用系统Chrome将HTML转换为PDF二进制数据
+    #     """
+    #     print("📄 启动系统Chrome，转换HTML为PDF...")
+
+    #     try:
+    #         async with async_playwright() as p:
+    #             # 使用系统安装的Chrome
+    #             print("🚀 启动系统Chrome浏览器...")
+    #             browser = await p.chromium.launch(
+    #                 executable_path="/usr/bin/google-chrome-stable",
+    #                 headless=True,
+    #                 args=[
+    #                     '--no-sandbox',
+    #                     '--disable-dev-shm-usage',
+    #                     '--disable-gpu',
+    #                     '--disable-software-rasterizer',
+    #                     '--disable-extensions',
+    #                     '--disable-background-timer-throttling',
+    #                     '--disable-renderer-backgrounding',
+    #                     '--disable-backgrounding-occluded-windows',
+    #                     '--disable-client-side-phishing-detection',
+    #                     '--disable-crash-reporter',
+    #                     '--disable-oopr-debug-crash-dump'
+    #                     '--no-first-run',
+    #                     '--single-process',  # 单进程模式，减少内存使用
+    #                     '--memory-pressure-off',  # 禁用内存压力监控
+    #                     '--no-zygote',
+    #                     '--max-old-space-size=1024'  # 限制Node.js内存使用（如果适用）
+    #                 ]
+    #             )
+
+    #             print("🌐 创建新页面...")
+    #             page = await browser.new_page()
+
+    #             # 设置页面尺寸为A4
+    #             await page.set_viewport_size({"width": 1200, "height": 1697})
+
+    #             print("📝 加载HTML内容...")
+    #             await page.set_content(html_content, wait_until='networkidle')
+
+    #             # 等待额外时间确保所有资源加载完成
+    #             await asyncio.sleep(2)
+
+    #             # 生成PDF二进制数据
+    #             print("🖨️ 生成PDF...")
+    #             pdf_options = {
+    #                 "format": 'A4',
+    #                 "print_background": True,
+    #                 "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
+    #                 "display_header_footer": False,
+    #                 "prefer_css_page_size": True
+    #             }
+
+    #             pdf_data = await page.pdf(**pdf_options)
+    #             await browser.close()
+
+    #             print(f"✅ PDF二进制数据生成成功，大小: {len(pdf_data)} 字节")
+    #             return pdf_data
+
+    #     except Exception as e:
+    #         print(f"❌ PDF生成失败: {e}")
+    #         import traceback
+    #         print(f"📋 详细错误信息: {traceback.format_exc()}")
+    #         return None
+
+    async def html_to_pdf(self, html_content, debug_mode=False):
         """
         使用系统Chrome将HTML转换为PDF二进制数据
+        优化图表渲染，确保动态生成的图表能正确显示
         """
         print("📄 启动系统Chrome，转换HTML为PDF...")
 
         try:
-            async with async_playwright() as p:
-                # 使用系统安装的Chrome
-                print("🚀 启动系统Chrome浏览器...")
-                browser = await p.chromium.launch(
-                    executable_path="/usr/bin/google-chrome-stable",
-                    headless=True,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-gpu',
-                        '--disable-software-rasterizer',
-                        '--disable-extensions',
-                        '--disable-background-timer-throttling',
-                        '--disable-renderer-backgrounding',
-                        '--disable-backgrounding-occluded-windows',
-                        '--disable-client-side-phishing-detection',
-                        '--disable-crash-reporter',
-                        '--disable-oopr-debug-crash-dump'
-                        '--no-first-run',
-                        '--single-process',  # 单进程模式，减少内存使用
-                        '--memory-pressure-off',  # 禁用内存压力监控
-                        '--no-zygote',
-                        '--max-old-space-size=1024'  # 限制Node.js内存使用（如果适用）
-                    ]
-                )
+            async def convert():
+                async with async_playwright() as p:
+                    # 使用系统安装的Chrome
+                    print("🚀 启动系统Chrome浏览器...")
+                    browser = await p.chromium.launch(
+                        executable_path="/usr/bin/google-chrome-stable",
+                        headless=True,
+                        args=[
+                            '--no-sandbox',
+                            '--disable-dev-shm-usage',
+                            # 移除可能影响图表渲染的参数
+                            # '--disable-gpu',  # 某些图表渲染可能需要GPU加速
+                            '--disable-software-rasterizer',
+                            '--disable-extensions',
+                            '--disable-background-timer-throttling',
+                            '--disable-renderer-backgrounding',
+                            '--disable-backgrounding-occluded-windows',
+                            '--disable-client-side-phishing-detection',
+                            # 保留崩溃报告以便调试
+                            # '--disable-crash-reporter',
+                            '--disable-oopr-debug-crash-dump',
+                            '--no-first-run',
+                            # 移除单进程模式，复杂渲染可能崩溃
+                            # '--single-process',
+                            '--memory-pressure-off',
+                            '--no-zygote',
+                            '--max-old-space-size=2048',  # 增加内存限制
+                            '--enable-webgl',  # 启用WebGL支持
+                            '--ignore-gpu-blocklist',  # 忽略GPU黑名单
+                            '--allow-running-insecure-content',  # 允许不安全内容
+                            '--disable-features=VizDisplayCompositor'  # 禁用某些渲染优化
+                        ]
+                    )
 
-                print("🌐 创建新页面...")
-                page = await browser.new_page()
+                    print("🌐 创建新页面...")
+                    page = await browser.new_page()
 
-                # 设置页面尺寸为A4
-                await page.set_viewport_size({"width": 1200, "height": 1697})
+                    # 设置页面尺寸为A4
+                    await page.set_viewport_size({"width": 1200, "height": 1697})
 
-                print("📝 加载HTML内容...")
-                await page.set_content(html_content, wait_until='networkidle')
+                    # 启用JavaScript
+                    await page.set_javascript_enabled(True)
 
-                # 等待额外时间确保所有资源加载完成
-                await asyncio.sleep(2)
+                    print("📝 加载HTML内容...")
+                    # 等待网络空闲和DOM内容加载完成
+                    await page.set_content(html_content, wait_until='domcontentloaded')
 
-                # 生成PDF二进制数据
-                print("🖨️ 生成PDF...")
-                pdf_options = {
-                    "format": 'A4',
-                    "print_background": True,
-                    "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
-                    "display_header_footer": False,
-                    "prefer_css_page_size": True
-                }
+                    # 检查资源加载错误
+                    resource_errors = await page.evaluate("""
+                        () => {
+                            const entries = window.performance.getEntriesByType('resource');
+                            return entries
+                                .filter(entry => entry.responseStatus >= 400)
+                                .map(entry => `${entry.name} (${entry.responseStatus})`);
+                        }
+                    """)
+                    
+                    if resource_errors:
+                        print(f"⚠️ 检测到资源加载错误: {', '.join(resource_errors)}")
+                        if debug_mode:
+                            with open("resource_errors.txt", "w") as f:
+                                f.write("\n".join(resource_errors))
 
-                pdf_data = await page.pdf(**pdf_options)
-                await browser.close()
+                    # 等待图表渲染完成 - 可根据实际情况调整选择器
+                    print("⏳ 等待图表渲染完成...")
+                    try:
+                        # 等待图表容器出现
+                        await page.wait_for_selector(
+                            ".chart-container, canvas, svg",  # 常见图表容器选择器
+                            state="visible",
+                            timeout=10000  # 10秒超时
+                        )
+                        
+                        # 等待图表实际绘制完成
+                        await page.wait_for_function("""
+                            () => {
+                                // 检查Canvas是否有内容
+                                const canvases = document.querySelectorAll('canvas');
+                                for (const canvas of canvases) {
+                                    try {
+                                        const ctx = canvas.getContext('2d');
+                                        const imageData = ctx.getImageData(0, 0, 1, 1).data;
+                                        if (imageData.some(value => value > 0)) {
+                                            return true;
+                                        }
+                                    } catch (e) {
+                                        continue;
+                                    }
+                                }
+                                
+                                // 检查SVG是否有内容
+                                const svgs = document.querySelectorAll('svg');
+                                for (const svg of svgs) {
+                                    if (svg.innerHTML.trim().length > 0) {
+                                        return true;
+                                    }
+                                }
+                                
+                                return false;
+                            }
+                        """, timeout=15000)  # 15秒超时
+                    except Exception as e:
+                        print(f"⚠️ 图表渲染等待超时: {str(e)}")
+                        if not debug_mode:
+                            print("ℹ️ 启用debug_mode可获取更多诊断信息")
 
-                print(f"✅ PDF二进制数据生成成功，大小: {len(pdf_data)} 字节")
-                return pdf_data
+                    # 额外缓冲时间确保所有元素渲染完成
+                    await asyncio.sleep(3)
+
+                    # 调试模式：保存截图和HTML内容
+                    if debug_mode:
+                        print("📸 保存调试截图...")
+                        screenshot = await page.screenshot(full_page=True)
+                        with open("debug_screenshot.png", "wb") as f:
+                            f.write(screenshot)
+                        
+                        print("📄 保存调试HTML...")
+                        with open("debug_input.html", "w", encoding="utf-8") as f:
+                            f.write(html_content)
+
+                    # 生成PDF二进制数据
+                    print("🖨️ 生成PDF...")
+                    pdf_options = {
+                        "format": 'A4',
+                        "print_background": True,  # 确保背景和图表都被打印
+                        "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
+                        "display_header_footer": False,
+                        "prefer_css_page_size": True,
+                        "timeout": 30000  # 延长PDF生成超时时间
+                    }
+
+                    pdf_data = await page.pdf(** pdf_options)
+                    await browser.close()
+
+                    print(f"✅ PDF二进制数据生成成功，大小: {len(pdf_data)} 字节")
+                    return pdf_data
+
+            return asyncio.run(convert())
 
         except Exception as e:
             print(f"❌ PDF生成失败: {e}")
-            import traceback
             print(f"📋 详细错误信息: {traceback.format_exc()}")
             return None
 
