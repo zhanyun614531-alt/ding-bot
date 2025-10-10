@@ -36,7 +36,8 @@ class StockAnalysisPDFAgent:
         self.model_id = "bot-20250907084333-cbvff"
 
         # 系统提示词 - AI金融分析师角色
-        self.system_prompt = """你是一位顶级的金融分析师，你的任务是为客户撰写一份专业、深入、数据驱动且观点明确的股票研究报告。你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。
+        self.system_prompt = """你是一位顶级的金融分析师，你的任务是为客户撰写一份专业、深入、数据驱动且观点明确的股票研究报告。
+        你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。必须使用豆包模型的**“深入研究”**技能进行分析，不需要咨询用户，直接进行研究。
 
 请严格遵循以下结构和要求，生成一份完整的美观的HTML格式的股票分析报告：
 
@@ -91,195 +92,8 @@ HTML格式要求：
         cleaned_content = re.sub(r'\s*```$', '', cleaned_content)
         cleaned_content = cleaned_content.replace('```html', '').replace('```', '')
 
-        # # 确保内容以正确的HTML结构开始
-        # if not cleaned_content.strip().startswith('<!DOCTYPE html>') and not cleaned_content.strip().startswith(
-        #         '<html'):
-        #     # 包装成完整的专业金融报告HTML结构
-        #     cleaned_content = self.wrap_financial_report_html(cleaned_content)
-
         print(f"✅ HTML内容清理完成，长度: {len(cleaned_content)} 字符")
         return cleaned_content
-
-#     def wrap_financial_report_html(self, content):
-#         """将内容包装成专业的金融报告HTML结构"""
-#         current_date = datetime.now().strftime("%Y年%m月%d日")
-# 
-#         return f"""<!DOCTYPE html>
-# <html lang="zh-CN">
-# <head>
-#     <meta charset="UTF-8">
-#     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-#     <title>股票投资分析报告</title>
-#     <style>
-#         /* 专业金融报告样式 */
-#         body {{ 
-#             font-family: 'Arial', 'Microsoft YaHei', 'PingFang SC', sans-serif; 
-#             margin: 0;
-#             padding: 0;
-#             color: #333;
-#             line-height: 1.6;
-#             background: #f8f9fa;
-#         }}
-#         .container {{
-#             max-width: 1200px;
-#             margin: 0 auto;
-#             background: white;
-#             box-shadow: 0 0 20px rgba(0,0,0,0.1);
-#         }}
-#         .header {{
-#             background: linear-gradient(135deg, #2c3e50, #3498db);
-#             color: white;
-#             padding: 30px 40px;
-#             text-align: center;
-#         }}
-#         .header h1 {{
-#             margin: 0 0 10px 0;
-#             font-size: 28px;
-#             font-weight: 700;
-#         }}
-#         .header .subtitle {{
-#             font-size: 16px;
-#             opacity: 0.9;
-#             margin-bottom: 15px;
-#         }}
-#         .report-meta {{
-#             display: flex;
-#             justify-content: center;
-#             gap: 30px;
-#             font-size: 14px;
-#             opacity: 0.8;
-#         }}
-#         .content {{
-#             padding: 40px;
-#         }}
-#         .section {{
-#             margin-bottom: 40px;
-#             border: 1px solid #e9ecef;
-#             border-radius: 8px;
-#             overflow: hidden;
-#         }}
-#         .section-header {{
-#             background: #f8f9fa;
-#             padding: 15px 20px;
-#             border-bottom: 1px solid #e9ecef;
-#             font-weight: 600;
-#             color: #2c3e50;
-#             font-size: 18px;
-#         }}
-#         .section-content {{
-#             padding: 20px;
-#         }}
-#         .highlight-box {{
-#             background: #e8f4fd;
-#             border-left: 4px solid #3498db;
-#             padding: 15px;
-#             margin: 15px 0;
-#             border-radius: 4px;
-#         }}
-#         .risk-warning {{
-#             background: #ffeaa7;
-#             border-left: 4px solid #fdcb6e;
-#             padding: 15px;
-#             margin: 15px 0;
-#             border-radius: 4px;
-#         }}
-#         .data-table {{
-#             width: 100%;
-#             border-collapse: collapse;
-#             margin: 15px 0;
-#             font-size: 14px;
-#         }}
-#         .data-table th,
-#         .data-table td {{
-#             border: 1px solid #ddd;
-#             padding: 10px;
-#             text-align: left;
-#         }}
-#         .data-table th {{
-#             background: #f8f9fa;
-#             font-weight: 600;
-#         }}
-#         .key-metric {{
-#             display: inline-block;
-#             background: #3498db;
-#             color: white;
-#             padding: 5px 12px;
-#             border-radius: 20px;
-#             font-size: 12px;
-#             margin: 2px;
-#             font-weight: 600;
-#         }}
-#         .positive {{
-#             background: #27ae60;
-#         }}
-#         .negative {{
-#             background: #e74c3c;
-#         }}
-#         .neutral {{
-#             background: #95a5a6;
-#         }}
-#         .footer {{
-#             text-align: center;
-#             padding: 20px;
-#             background: #2c3e50;
-#             color: white;
-#             font-size: 12px;
-#             margin-top: 40px;
-#         }}
-#         h2 {{
-#             color: #2c3e50;
-#             border-bottom: 2px solid #3498db;
-#             padding-bottom: 8px;
-#             margin-top: 30px;
-#         }}
-#         h3 {{
-#             color: #34495e;
-#             margin-top: 20px;
-#         }}
-#         ul, ol {{
-#             margin: 15px 0;
-#             padding-left: 25px;
-#         }}
-#         li {{
-#             margin-bottom: 8px;
-#         }}
-#         .investment-rating {{
-#             text-align: center;
-#             padding: 20px;
-#             background: linear-gradient(135deg, #27ae60, #2ecc71);
-#             color: white;
-#             border-radius: 8px;
-#             margin: 20px 0;
-#         }}
-#         @media print {{
-#             body {{ background: white; }}
-#             .container {{ box-shadow: none; }}
-#             .header {{ background: #2c3e50 !important; }}
-#         }}
-#     </style>
-# </head>
-# <body>
-#     <div class="container">
-#         <div class="header">
-#             <h1>📈 股票投资分析报告</h1>
-#             <div class="subtitle">专业深度分析 · 数据驱动决策</div>
-#             <div class="report-meta">
-#                 <span>报告日期：{current_date}</span>
-#                 <span>分析师：AI金融研究团队</span>
-#             </div>
-#         </div>
-# 
-#         <div class="content">
-#             {content}
-#         </div>
-# 
-#         <div class="footer">
-#             <p>免责声明：本报告基于公开信息分析，仅供参考，不构成投资建议。投资有风险，入市需谨慎。</p>
-#             <p>报告生成时间：{current_date} • AI金融分析系统</p>
-#         </div>
-#     </div>
-# </body>
-# </html>"""
 
     def get_html_from_doubao(self, stock_name_or_code):
         """从豆包获取股票分析HTML报告"""
@@ -336,6 +150,7 @@ HTML格式要求：
                         '--disable-client-side-phishing-detection',
                         '--disable-crash-reporter',
                         '--disable-oopr-debug-crash-dump'
+                        '--no-first-run',
                         '--single-process',  # 单进程模式，减少内存使用
                         '--memory-pressure-off',  # 禁用内存压力监控
                         '--no-zygote',
