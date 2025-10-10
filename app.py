@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from contextlib import asynccontextmanager
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 加载环境变量
 load_dotenv()
@@ -246,7 +246,10 @@ async def process_command(command):
     if not command:
         return "咨询：请发送具体指令哦~ 支持的指令：\n- LLM"
     elif command == '时间':
-        return f"咨询：当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        # 获取UTC时间并加8小时得到北京时间
+        utc_now = datetime.utcnow()
+        beijing_now = utc_now + timedelta(hours=8)
+        return f"咨询：当前时间: {beijing_now.strftime('%Y-%m-%d %H:%M:%S')}"
     elif command.startswith("LLM"):
         try:
             pure_command = re.sub(r'^LLM', '', command).strip()
