@@ -96,7 +96,7 @@ async def upload_file_to_Qiniu(pdf_binary: bytes, stock_name: str, at_user_ids=N
             return None
 
         timestamp = datetime.now().strftime("%Y%m%d")
-        remote_file_name = f"Stock Analysis Report_{stock_name}_{timestamp}.pdf"
+        remote_file_name = f"Stock_Analysis_Report_{stock_name}_{timestamp}.pdf"
 
         # 简单验证PDF文件头（可选，但推荐）
         pdf_header = b'%PDF-'
