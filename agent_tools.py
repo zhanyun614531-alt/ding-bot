@@ -79,7 +79,6 @@ HTML格式要求：
 - 重要数据加粗突出显示
 - 风险提示使用醒目标记
 - 适当使用图表和表格展示数据
-- 确保响应式设计，适应PDF输出
 - 报告需要美观和简洁
 
 重要：直接输出完整的HTML代码，不要包含任何代码块标记（如```html或```）"""
@@ -126,153 +125,71 @@ HTML格式要求：
                 print(f"🔧 API响应详情: {e.response}")
             return None
 
-    async def html_to_pdf(self, html_content):
-        """
-        使用系统Chrome将HTML转换为PDF二进制数据
-        """
-        print("📄 启动系统Chrome，转换HTML为PDF...")
-
-        try:
-            async with async_playwright() as p:
-                # 使用系统安装的Chrome
-                print("🚀 启动系统Chrome浏览器...")
-                browser = await p.chromium.launch(
-                    executable_path="/usr/bin/google-chrome-stable",
-                    headless=True,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-gpu',
-                        '--disable-software-rasterizer',
-                        '--disable-extensions',
-                        '--disable-background-timer-throttling',
-                        '--disable-renderer-backgrounding',
-                        '--disable-backgrounding-occluded-windows',
-                        '--disable-client-side-phishing-detection',
-                        '--disable-crash-reporter',
-                        '--disable-oopr-debug-crash-dump'
-                        '--no-first-run',
-                        '--single-process',  # 单进程模式，减少内存使用
-                        '--memory-pressure-off',  # 禁用内存压力监控
-                        '--no-zygote',
-                        '--max-old-space-size=1024'  # 限制Node.js内存使用（如果适用）
-                    ]
-                )
-
-                print("🌐 创建新页面...")
-                page = await browser.new_page()
-
-                # 设置页面尺寸为A4
-                await page.set_viewport_size({"width": 1200, "height": 1697})
-
-                print("📝 加载HTML内容...")
-                await page.set_content(html_content, wait_until='networkidle')
-
-                # 等待额外时间确保所有资源加载完成
-                await asyncio.sleep(2)
-
-                # 生成PDF二进制数据
-                print("🖨️ 生成PDF...")
-                pdf_options = {
-                    "format": 'A4',
-                    "print_background": True,
-                    "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
-                    "display_header_footer": False,
-                    "prefer_css_page_size": True
-                }
-
-                pdf_data = await page.pdf(**pdf_options)
-                await browser.close()
-
-                print(f"✅ PDF二进制数据生成成功，大小: {len(pdf_data)} 字节")
-                return pdf_data
-
-        except Exception as e:
-            print(f"❌ PDF生成失败: {e}")
-            import traceback
-            print(f"📋 详细错误信息: {traceback.format_exc()}")
-            return None
-
-    # async def html_to_pdf(self, html_content, debug_mode=False):
-    #     """优化资源占用的HTML转PDF异步方法"""
-    #     print("📄 启动Chrome（低资源模式），转换HTML为PDF...")
-
+    # async def html_to_pdf(self, html_content):
+    #     """
+    #     使用系统Chrome将HTML转换为PDF二进制数据
+    #     """
+    #     print("📄 启动系统Chrome，转换HTML为PDF...")
+    #
     #     try:
     #         async with async_playwright() as p:
-    #             # 关键优化：Chrome低资源启动参数
-    #             chrome_args = [
-    #                 '--no-sandbox',  # 必须：Render环境无沙箱权限
-    #                 '--disable-dev-shm-usage',  # 禁用共享内存，避免内存不足
-    #                 '--disable-gpu',  # 完全禁用GPU，减少内存占用
-    #                 '--disable-software-rasterizer',  # 禁用软件光栅化
-    #                 '--disable-extensions',  # 禁用扩展
-    #                 '--disable-background-timer-throttling',  # 禁用后台定时器
-    #                 '--disable-renderer-backgrounding',  # 禁用渲染器后台运行
-    #                 '--disable-backgrounding-occluded-windows',
-    #                 '--no-first-run',  # 跳过首次运行配置
-    #                 '--no-zygote',  # 禁用Zygote进程（减少内存）
-    #                 '--single-process',  # 单进程模式（虽有风险，但内存占用更低）
-    #                 '--headless=new',  # 最新无头模式（更轻量）
-    #                 '--blink-settings=imagesEnabled=false',  # 可选：禁用图片（若图表不依赖）
-    #                 '--memory-pressure-off',
-    #                 '--js-flags=--expose-gc --max-old-space-size=256',  # 限制JS内存
-    #             ]
-
-    #             print("🚀 启动Chrome（低资源模式）...")
+    #             # 使用系统安装的Chrome
+    #             print("🚀 启动系统Chrome浏览器...")
     #             browser = await p.chromium.launch(
-    #                 executable_path="/usr/bin/google-chrome-stable",  # 确认Render环境路径
+    #                 executable_path="/usr/bin/google-chrome-stable",
     #                 headless=True,
-    #                 args=chrome_args,
-    #                 slow_mo=100,  # 慢启动，避免进程猝死
+    #                 args=[
+    #                     '--no-sandbox',
+    #                     '--disable-dev-shm-usage',
+    #                     '--disable-gpu',
+    #                     '--disable-software-rasterizer',
+    #                     '--disable-extensions',
+    #                     '--disable-background-timer-throttling',
+    #                     '--disable-renderer-backgrounding',
+    #                     '--disable-backgrounding-occluded-windows',
+    #                     '--disable-client-side-phishing-detection',
+    #                     '--disable-crash-reporter',
+    #                     '--disable-oopr-debug-crash-dump'
+    #                     '--no-first-run',
+    #                     '--single-process',  # 单进程模式，减少内存使用
+    #                     '--memory-pressure-off',  # 禁用内存压力监控
+    #                     '--no-zygote',
+    #                     '--max-old-space-size=1024'  # 限制Node.js内存使用（如果适用）
+    #                 ]
     #             )
-
-    #             # 验证Chrome是否真的启动成功
-    #             if not browser.is_connected():
-    #                 raise Exception("Chrome启动后未连接，可能被强制终止")
-    #             print("✅ Chrome启动并连接成功")
-
+    #
+    #             print("🌐 创建新页面...")
     #             page = await browser.new_page()
-    #             # 优化页面尺寸：更小的视口，减少内存
-    #             await page.set_viewport_size({"width": 800, "height": 1130})  # A4比例缩小
-    #             await page.set_javascript_enabled(True)
-
+    #
+    #             # 设置页面尺寸为A4
+    #             await page.set_viewport_size({"width": 1200, "height": 1697})
+    #
     #             print("📝 加载HTML内容...")
-    #             # 缩短等待时间，避免阻塞
-    #             await page.set_content(html_content, wait_until='domcontentloaded', timeout=15000)
-
-    #             # 简化图表等待逻辑（减少内存占用）
-    #             print("⏳ 等待图表渲染...")
-    #             try:
-    #                 # 只等待图表容器出现，不检查像素（减少计算）
-    #                 await page.wait_for_selector(".chart-container, canvas, svg",
-    #                                              state="visible", timeout=8000)
-    #                 await asyncio.sleep(2)  # 缩短缓冲时间
-    #             except Exception as e:
-    #                 print(f"⚠️ 图表等待超时（非致命）: {str(e)}")
-
-    #             # 生成PDF（禁用背景打印，减少内存）
-    #             print("🖨️ 生成PDF（低资源模式）...")
+    #             await page.set_content(html_content, wait_until='networkidle')
+    #
+    #             # 等待额外时间确保所有资源加载完成
+    #             await asyncio.sleep(2)
+    #
+    #             # 生成PDF二进制数据
+    #             print("🖨️ 生成PDF...")
     #             pdf_options = {
     #                 "format": 'A4',
-    #                 "print_background": False,  # 关键：禁用背景打印（若图表无背景色）
-    #                 "margin": {"top": "0.3in", "right": "0.3in", "bottom": "0.3in", "left": "0.3in"},
+    #                 "print_background": True,
+    #                 "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
     #                 "display_header_footer": False,
-    #                 "prefer_css_page_size": True,
-    #                 "timeout": 20000,  # 缩短超时，避免阻塞
+    #                 "prefer_css_page_size": True
     #             }
-
+    #
     #             pdf_data = await page.pdf(**pdf_options)
     #             await browser.close()
-
-    #             print(f"✅ PDF生成成功，大小: {len(pdf_data)} 字节")
+    #
+    #             print(f"✅ PDF二进制数据生成成功，大小: {len(pdf_data)} 字节")
     #             return pdf_data
-
+    #
     #     except Exception as e:
-    #         print(f"❌ PDF生成失败（关键错误）: {str(e)}")
-    #         print(f"📋 详细错误: {traceback.format_exc()}")
-    #         # 若Chrome启动失败，返回明确错误
-    #         if "Chrome启动" in str(e) or "EPIPE" in str(e):
-    #             print("⚠️ 推测原因：Render内存不足，Chrome被强制终止")
+    #         print(f"❌ PDF生成失败: {e}")
+    #         import traceback
+    #         print(f"📋 详细错误信息: {traceback.format_exc()}")
     #         return None
 
     async def generate_stock_report(self, stock_name_or_code):
@@ -283,14 +200,15 @@ HTML格式要求：
         html_content = self.get_html_from_doubao(stock_name_or_code)
         if html_content:
             print(f"✅ 成功获取HTML内容，长度: {len(html_content)} 字符")
-            # 转换为PDF二进制数据
-            pdf_binary = await self.html_to_pdf(html_content)
-            if pdf_binary:
-                print(f"✅ {stock_name_or_code} 分析报告生成成功！PDF大小: {len(pdf_binary)} 字节")
-                return pdf_binary
-            else:
-                print(f"❌ {stock_name_or_code} PDF转换失败")
-                return None
+            return html_content
+            # # 转换为PDF二进制数据
+            # pdf_binary = await self.html_to_pdf(html_content)
+            # if pdf_binary:
+            #     print(f"✅ {stock_name_or_code} 分析报告生成成功！PDF大小: {len(pdf_binary)} 字节")
+            #     return pdf_binary
+            # else:
+            #     print(f"❌ {stock_name_or_code} PDF转换失败")
+            #     return None
         else:
             print(f"❌ 无法获取 {stock_name_or_code} 的HTML内容，可能是豆包API调用失败")
             return None
@@ -1274,11 +1192,11 @@ AI：```json
         print(f"📈 开始生成股票分析报告: {stock_name}")
 
         try:
-            pdf_binary = await self.stock_agent.generate_stock_report(stock_name)
-            if pdf_binary:
-                print(f"✅ 股票分析报告生成成功，大小: {len(pdf_binary)} 字节")
+            html_content = await self.stock_agent.generate_stock_report(stock_name)
+            if html_content:
+                print(f"✅ 股票分析报告生成成功，大小: {len(html_content)} 字节")
                 # 返回PDF二进制数据，用于后续上传或其他操作
-                return pdf_binary
+                return html_content
             else:
                 print("❌ 股票分析报告生成失败")
                 return None
@@ -1609,13 +1527,13 @@ AI：```json
                     end_date=parameters.get("end_date")
                 )
             elif action == "generate_stock_report":
-                # 股票分析工具返回PDF二进制数据
-                pdf_binary = await self.generate_stock_report(parameters.get("stock_name", ""))
-                if pdf_binary:
+                # 股票分析工具返回html二进制数据
+                html_content = await self.generate_stock_report(parameters.get("stock_name", ""))
+                if html_content:
                     return {
                         "success": True,
-                        "pdf_binary": pdf_binary,
-                        "message": f"✅ 股票分析报告生成成功，PDF大小: {len(pdf_binary)} 字节",
+                        "html_binary": html_content,
+                        "message": f"✅ 股票分析报告生成成功，html大小: {len(html_content)} 字节",
                         "stock_name": parameters.get("stock_name", "")
                     }
                 else:
@@ -1674,9 +1592,9 @@ AI：```json
                                                                                  dict) and tool_result.get(
                     "success"):
                     return {
-                        "type": "stock_pdf",
+                        "type": "stock_html",
                         "success": True,
-                        "pdf_binary": tool_result.get("pdf_binary"),
+                        "html_binary": tool_result.get("html_binary"),
                         "message": tool_result.get("message"),
                         "stock_name": tool_result.get("stock_name")
                     }
@@ -1739,12 +1657,12 @@ async def test_all_features():
         print(f"\n{i}. 测试: {test_case}")
         try:
             result = await smart_assistant(test_case)
-            if result["type"] == "stock_pdf":
+            if result["type"] == "stock_html":
                 print(f"✅ 股票分析报告生成成功")
                 print(f"   股票名称: {result.get('stock_name')}")
-                print(f"   PDF大小: {len(result.get('pdf_binary', b''))} 字节")
+                print(f"   html大小: {len(result.get('html_binary', b''))} 字节")
                 print(f"   消息: {result.get('message')}")
-                # 这里可以添加上传PDF到其他服务的代码
+                # 这里可以添加上传html到其他服务的代码
             else:
                 print(f"结果: {result.get('content', '')}")
         except Exception as e:
