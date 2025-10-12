@@ -281,19 +281,22 @@ async def home():
     return "钉钉机器人服务运行中 ✅"
 
 
-# @app.get("/health")
+# # @app.get("/health")
+# async def health():
+#     """健康检查端点"""
+#     health_status = {
+#         "status": "healthy",
+#         "service": "dingtalk-bot",
+#         "timestamp": time.time(),
+#         "active_tasks": len(processing_tasks),
+#         "environment": "production",
+#         "version": "1.0.0"
+#     }
+#     return JSONResponse(health_status)
+
 @app.route('/health', methods=['GET', 'HEAD'])
-async def health():
-    """健康检查端点"""
-    health_status = {
-        "status": "healthy",
-        "service": "dingtalk-bot",
-        "timestamp": time.time(),
-        "active_tasks": len(processing_tasks),
-        "environment": "production",
-        "version": "1.0.0"
-    }
-    return JSONResponse(health_status)
+async def health_check():
+    return "OK", 200
 
 
 @app.api_route("/dingtalk/webhook", methods=["GET", "POST"])
