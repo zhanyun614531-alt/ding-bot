@@ -1,5 +1,4 @@
 # 10/12 06:35
-
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -39,6 +38,9 @@ thread_pool = ThreadPoolExecutor(max_workers=5)
 # 存储处理中的任务
 processing_tasks = {}
 
+# 临时存储PDF文件（在生产环境中应该使用持久化存储）
+pdf_storage = {}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -75,10 +77,10 @@ def generate_dingtalk_signature(timestamp: str, secret: str) -> str:
     ).digest()
     return urllib.parse.quote_plus(base64.b64encode(hmac_code))
 
-async def upload_file_to_Qiniu(html_binary: bytes, stock_name: str, at_user_ids=None):
+async def upload_file_to_Qiniu(pdf_binary: bytes, stock_name: str, at_user_ids=None):
     """
     上传PDF二进制数据到七牛云
-    :param html_binary: html文件的二进制数据
+    :param pdf_binary_data: PDF文件的二进制数据
     :param stock_name: 股票名称
     :return: 上传成功返回文件的公开访问URL，失败返回None
     """
@@ -90,19 +92,24 @@ async def upload_file_to_Qiniu(html_binary: bytes, stock_name: str, at_user_ids=
     q = Auth(access_key, secret_key)
     try:
         # 检查二进制数据是否为空
-        if not html_binary:
-            print("错误：html二进制数据为空")
+        if not pdf_binary:
+            print("错误：PDF二进制数据为空")
             return None
 
         timestamp = datetime.now().strftime("%Y%m%d")
-        remote_file_name = f"Stock_Analysis_Report_{stock_name}_{timestamp}.html"
+        remote_file_name = f"Stock_Analysis_Report_{stock_name}_{timestamp}.pdf"
+
+        # 简单验证PDF文件头（可选，但推荐）
+        pdf_header = b'%PDF-'
+        if not pdf_binary.startswith(pdf_header):
+            print("警告：提供的二进制数据可能不是有效的PDF文件")
 
         # 生成上传Token
         token = q.upload_token(bucket_name, remote_file_name,
                                     3600)
 
         # 执行上传（使用put_data上传二进制数据）
-        ret, info = put_data(token, remote_file_name, html_binary)
+        ret, info = put_data(token, remote_file_name, pdf_binary)
 
         # 检查上传结果
         if ret is not None and ret['key'] == remote_file_name:
@@ -134,20 +141,20 @@ async def sync_llm_processing(conversation_id, user_input, at_user_ids):
 
         if result:
             # 处理不同类型的返回结果
-            if isinstance(result, dict) and result.get("type") == "stock_html" and result.get("success"):
+            if isinstance(result, dict) and result.get("type") == "stock_pdf" and result.get("success"):
                 # 处理股票分析PDF结果
-                html_binary = result.get("html_binary")
+                pdf_binary = result.get("pdf_binary")
                 stock_name = result.get("stock_name", "未知股票")
                 message = result.get("message", "股票分析报告生成完成")
 
-                if html_binary:
+                if pdf_binary:
                     # 先发送提示消息
-                    await send_official_message("咨询: 📈 正在生成股票分析报告，请稍候...", at_user_ids=at_user_ids)
+                    await send_official_message("咨询: 📈 正在生成股票分析报告PDF，请稍候...", at_user_ids=at_user_ids)
                     # 发送PDF文件
                     # await send_pdf_via_dingtalk(pdf_binary, stock_name, at_user_ids)
-                    await upload_file_to_Qiniu(html_binary, stock_name, at_user_ids)
+                    await upload_file_to_Qiniu(pdf_binary, stock_name, at_user_ids)
                 else:
-                    error_msg = "咨询：❌ html二进制数据为空"
+                    error_msg = "咨询：❌ PDF二进制数据为空"
                     await send_official_message(error_msg, at_user_ids=at_user_ids)
 
             elif isinstance(result, dict) and result.get("type") == "text":
