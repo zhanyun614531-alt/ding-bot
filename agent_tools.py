@@ -193,88 +193,6 @@ HTML格式要求：
             print(f"📋 详细错误信息: {traceback.format_exc()}")
             return None
 
-    # async def html_to_pdf(self, html_content, debug_mode=False):
-    #     """优化资源占用的HTML转PDF异步方法"""
-    #     print("📄 启动Chrome（低资源模式），转换HTML为PDF...")
-
-    #     try:
-    #         async with async_playwright() as p:
-    #             # 关键优化：Chrome低资源启动参数
-    #             chrome_args = [
-    #                 '--no-sandbox',  # 必须：Render环境无沙箱权限
-    #                 '--disable-dev-shm-usage',  # 禁用共享内存，避免内存不足
-    #                 '--disable-gpu',  # 完全禁用GPU，减少内存占用
-    #                 '--disable-software-rasterizer',  # 禁用软件光栅化
-    #                 '--disable-extensions',  # 禁用扩展
-    #                 '--disable-background-timer-throttling',  # 禁用后台定时器
-    #                 '--disable-renderer-backgrounding',  # 禁用渲染器后台运行
-    #                 '--disable-backgrounding-occluded-windows',
-    #                 '--no-first-run',  # 跳过首次运行配置
-    #                 '--no-zygote',  # 禁用Zygote进程（减少内存）
-    #                 '--single-process',  # 单进程模式（虽有风险，但内存占用更低）
-    #                 '--headless=new',  # 最新无头模式（更轻量）
-    #                 '--blink-settings=imagesEnabled=false',  # 可选：禁用图片（若图表不依赖）
-    #                 '--memory-pressure-off',
-    #                 '--js-flags=--expose-gc --max-old-space-size=256',  # 限制JS内存
-    #             ]
-
-    #             print("🚀 启动Chrome（低资源模式）...")
-    #             browser = await p.chromium.launch(
-    #                 executable_path="/usr/bin/google-chrome-stable",  # 确认Render环境路径
-    #                 headless=True,
-    #                 args=chrome_args,
-    #                 slow_mo=100,  # 慢启动，避免进程猝死
-    #             )
-
-    #             # 验证Chrome是否真的启动成功
-    #             if not browser.is_connected():
-    #                 raise Exception("Chrome启动后未连接，可能被强制终止")
-    #             print("✅ Chrome启动并连接成功")
-
-    #             page = await browser.new_page()
-    #             # 优化页面尺寸：更小的视口，减少内存
-    #             await page.set_viewport_size({"width": 800, "height": 1130})  # A4比例缩小
-    #             await page.set_javascript_enabled(True)
-
-    #             print("📝 加载HTML内容...")
-    #             # 缩短等待时间，避免阻塞
-    #             await page.set_content(html_content, wait_until='domcontentloaded', timeout=15000)
-
-    #             # 简化图表等待逻辑（减少内存占用）
-    #             print("⏳ 等待图表渲染...")
-    #             try:
-    #                 # 只等待图表容器出现，不检查像素（减少计算）
-    #                 await page.wait_for_selector(".chart-container, canvas, svg",
-    #                                              state="visible", timeout=8000)
-    #                 await asyncio.sleep(2)  # 缩短缓冲时间
-    #             except Exception as e:
-    #                 print(f"⚠️ 图表等待超时（非致命）: {str(e)}")
-
-    #             # 生成PDF（禁用背景打印，减少内存）
-    #             print("🖨️ 生成PDF（低资源模式）...")
-    #             pdf_options = {
-    #                 "format": 'A4',
-    #                 "print_background": False,  # 关键：禁用背景打印（若图表无背景色）
-    #                 "margin": {"top": "0.3in", "right": "0.3in", "bottom": "0.3in", "left": "0.3in"},
-    #                 "display_header_footer": False,
-    #                 "prefer_css_page_size": True,
-    #                 "timeout": 20000,  # 缩短超时，避免阻塞
-    #             }
-
-    #             pdf_data = await page.pdf(**pdf_options)
-    #             await browser.close()
-
-    #             print(f"✅ PDF生成成功，大小: {len(pdf_data)} 字节")
-    #             return pdf_data
-
-    #     except Exception as e:
-    #         print(f"❌ PDF生成失败（关键错误）: {str(e)}")
-    #         print(f"📋 详细错误: {traceback.format_exc()}")
-    #         # 若Chrome启动失败，返回明确错误
-    #         if "Chrome启动" in str(e) or "EPIPE" in str(e):
-    #             print("⚠️ 推测原因：Render内存不足，Chrome被强制终止")
-    #         return None
-
     async def generate_stock_report(self, stock_name_or_code):
         """生成股票分析报告的主方法（异步版本）"""
         print(f"🎯 开始生成 {stock_name_or_code} 的分析报告...")
@@ -1123,7 +1041,7 @@ class DeepseekAgent:
         self.stock_agent = StockAnalysisPDFAgent()
 
         # 更新系统提示词 - 添加股票分析功能
-        self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、天气、计算、邮件或股票分析时，你需要返回JSON格式的工具调用。
+        self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、邮件或股票分析时，你需要返回JSON格式的工具调用。
 
 可用工具：
 【日历事件功能】
@@ -1146,9 +1064,7 @@ class DeepseekAgent:
 13. 生成股票分析报告：{"action": "generate_stock_report", "parameters": {"stock_name": "股票名称或代码"}}
 
 【其他功能】
-14. 天气查询：{"action": "get_weather", "parameters": {"city": "城市名称"}}
-15. 计算器：{"action": "calculator", "parameters": {"expression": "数学表达式"}}
-16. 发送邮件：{"action": "send_email", "parameters": {"to": "收件邮箱", "subject": "邮件主题", "body": "邮件内容"}}
+14. 发送邮件：{"action": "send_email", "parameters": {"to": "收件邮箱", "subject": "邮件主题", "body": "邮件内容"}}
 
 重要规则：
 1. 当需要调用工具时，必须返回 ```json 和 ``` 包裹的JSON格式
@@ -1171,40 +1087,7 @@ AI：```json
 AI：```json
 {"action": "delete_events_by_time_range", "parameters": {"start_date": "2025-10-06", "end_date": "2025-10-12"}}
 ```
-用户：今天天气怎么样
-AI：```json
-{"action": "get_weather", "parameters": {"city": "北京"}}
-```
 """
-
-    def get_weather(self, city):
-        """获取天气信息"""
-        if not city:
-            return "请指定城市名称"
-
-        try:
-            response = requests.get(f"https://wttr.in/{city}?format=j1", timeout=10)
-            weather_data = response.json()
-            current = weather_data["current_condition"][0]
-            return (f"{city}天气：{current['weatherDesc'][0]['value']}，"
-                    f"温度{current['temp_C']}°C，湿度{current['humidity']}%")
-        except:
-            return "天气查询失败"
-
-    def calculator(self, expression):
-        """执行数学计算"""
-        if not expression:
-            return "请提供数学表达式"
-
-        try:
-            allowed_chars = {'+', '-', '*', '/', '(', ')', '.', ' ', '0', '1', '2', '3', '4', '5', '6', '7', '8',
-                             '9'}
-            if not all(c in allowed_chars for c in expression):
-                return "表达式包含不支持的字符"
-            result = eval(expression)
-            return f"{expression} = {result}"
-        except:
-            return "计算失败"
 
     def send_email(self, to, subject, body):
         """发送邮件 - 使用 Brevo API"""
@@ -1623,10 +1506,6 @@ AI：```json
                         "success": False,
                         "error": "❌ 股票分析报告生成失败"
                     }
-            elif action == "get_weather":
-                return self.get_weather(parameters.get("city", ""))
-            elif action == "calculator":
-                return self.calculator(parameters.get("expression", ""))
             elif action == "send_email":
                 return self.send_email(
                     parameters.get("to", ""),
