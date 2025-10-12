@@ -144,7 +144,8 @@ HTML格式要求：
                     args=[
                         '--no-sandbox',
                         '--disable-dev-shm-usage',
-                        '--disable-gpu',
+                        # '--disable-gpu',
+                        '--enable-gpu',
                         '--disable-software-rasterizer',
                         '--disable-extensions',
                         '--disable-background-timer-throttling',
