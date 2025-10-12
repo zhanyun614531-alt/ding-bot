@@ -1,5 +1,3 @@
-# 10/12 06:53
-
 import os
 import json
 import requests
@@ -144,8 +142,7 @@ HTML格式要求：
                     args=[
                         '--no-sandbox',
                         '--disable-dev-shm-usage',
-                        # '--disable-gpu',
-                        '--enable-gpu',
+                        '--disable-gpu',
                         '--disable-software-rasterizer',
                         '--disable-extensions',
                         '--disable-background-timer-throttling',
