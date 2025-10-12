@@ -294,9 +294,26 @@ async def home():
 #     }
 #     return JSONResponse(health_status)
 
-@app.route('/health', methods=['GET', 'HEAD'])
-async def health_check():
-    return "OK", 200
+@app.get("/health")
+@app.head("/health")  # 同时支持HEAD方法
+async def health_check(request: Request):
+    """
+    健康检查端点，支持GET和HEAD方法
+    """
+    if request.method == "HEAD":
+        # HEAD请求只返回头部，不返回body
+        return "OK", 200
+    else:
+        # GET请求返回完整状态信息
+        health_status = {
+                "status": "healthy",
+                "service": "dingtalk-bot",
+                "timestamp": time.time(),
+                "active_tasks": len(processing_tasks),
+                "environment": "production",
+                "version": "1.0.0"
+            }
+            return JSONResponse(health_status)
 
 
 @app.api_route("/dingtalk/webhook", methods=["GET", "POST"])
