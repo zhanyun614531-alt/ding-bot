@@ -313,7 +313,7 @@ async def health_check(request: Request):
                 "environment": "production",
                 "version": "1.0.0"
             }
-            return JSONResponse(health_status)
+        return JSONResponse(health_status)
 
 
 @app.api_route("/dingtalk/webhook", methods=["GET", "POST"])
