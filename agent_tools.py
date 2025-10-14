@@ -38,7 +38,7 @@ class StockAnalysisPDFAgent:
 
         # 系统提示词 - AI金融分析师角色
         self.system_prompt = """你是一位顶级的金融分析师，你的任务是为客户撰写一份专业、深入、数据驱动且观点明确的股票研究报告。
-        你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。必须使用豆包模型的**“深入研究”**技能进行分析，不需要咨询用户，直接进行研究。
+        你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。必须使用豆包模型的**"深入研究"**技能进行分析，不需要咨询用户，直接进行研究。
 
 请严格遵循以下结构和要求，生成一份完整的美观的HTML格式的股票分析报告：
 
@@ -1040,8 +1040,10 @@ class DeepseekAgent:
         # 初始化股票分析代理
         self.stock_agent = StockAnalysisPDFAgent()
 
-        # 更新系统提示词 - 添加股票分析功能
+        # 更新系统提示词 - 支持多个任务
         self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、邮件或股票分析时，你需要返回JSON格式的工具调用。
+
+重要更新：现在支持一次处理多个任务！当用户输入包含多个请求时，你需要返回一个JSON数组，包含多个工具调用。
 
 可用工具：
 【日历事件功能】
@@ -1068,24 +1070,31 @@ class DeepseekAgent:
 
 重要规则：
 1. 当需要调用工具时，必须返回 ```json 和 ``` 包裹的JSON格式
-2. 不需要工具时，直接用自然语言回答
-3. JSON格式必须严格符合上面的示例
-4. 时间格式：YYYY-MM-DD HH:MM (24小时制)，日期格式：YYYY-MM-DD
-5. 优先级：low(低), medium(中), high(高)
-6. 股票分析功能会返回PDF二进制数据，用于后续上传或其他操作
+2. 支持单个工具调用（JSON对象）和多个工具调用（JSON数组）
+3. 不需要工具时，直接用自然语言回答
+4. JSON格式必须严格符合上面的示例
+5. 时间格式：YYYY-MM-DD HH:MM (24小时制)，日期格式：YYYY-MM-DD
+6. 优先级：low(低), medium(中), high(高)
+7. 股票分析功能会返回PDF二进制数据，用于后续上传或其他操作
 
 示例：
 用户：生成腾讯控股的股票分析报告
 AI：```json
 {"action": "generate_stock_report", "parameters": {"stock_name": "腾讯控股"}}
 ```
-用户：删除10月份的所有任务
+用户：删除10月份的所有任务，并查看我的日历事件
 AI：```json
-{"action": "delete_tasks_by_time_range", "parameters": {"start_date": "2025-10-01", "end_date": "2025-10-31"}}
+[
+{"action": "delete_tasks_by_time_range", "parameters": {"start_date": "2025-10-01", "end_date": "2025-10-31"}},
+{"action": "query_events", "parameters": {"days": 7, "max_results": 10}}
+]
 ```
-用户：清理下周的所有日历事件
+用户：创建明天下午2点的会议，并生成茅台股票报告
 AI：```json
-{"action": "delete_events_by_time_range", "parameters": {"start_date": "2025-10-06", "end_date": "2025-10-12"}}
+[
+  {"action": "create_event", "parameters": {"summary": "团队会议", "description": "讨论项目进度", "start_time": "2025-10-08 14:00", "end_time": "2025-10-08 15:00"}},
+  {"action": "generate_stock_report", "parameters": {"stock_name": "贵州茅台"}}
+]
 ```
 """
 
@@ -1142,6 +1151,7 @@ AI：```json
         except Exception as e:
             return f"❌ 邮件发送异常：{str(e)}"
 
+
     # ========== 股票分析功能 ==========
 
     async def generate_stock_report(self, stock_name):
@@ -1169,6 +1179,7 @@ AI：```json
         except Exception as e:
             print(f"❌ 生成股票分析报告时出错: {e}")
             return None
+
 
     # ========== Google日历和任务相关方法 ==========
 
@@ -1204,6 +1215,7 @@ AI：```json
             error_msg = f"❌ 创建任务时出错: {str(e)}"
             print(error_msg)
             return error_msg
+
 
     def query_tasks(self, show_completed=False, max_results=20):
         """查询任务"""
@@ -1247,6 +1259,7 @@ AI：```json
             print(error_msg)
             return error_msg
 
+
     def update_task_status(self, task_id, status="completed"):
         """更新任务状态"""
         try:
@@ -1254,6 +1267,7 @@ AI：```json
             return result.get("message", result.get("error", "状态更新完成"))
         except Exception as e:
             return f"❌ 更新任务状态时出错: {str(e)}"
+
 
     def delete_task(self, task_id):
         """删除任务（通过任务ID）"""
@@ -1263,6 +1277,7 @@ AI：```json
         except Exception as e:
             return f"❌ 删除任务时出错: {str(e)}"
 
+
     def delete_task_by_title(self, title_keyword):
         """根据标题删除任务"""
         try:
@@ -1270,6 +1285,7 @@ AI：```json
             return result.get("message", result.get("error", "删除完成"))
         except Exception as e:
             return f"❌ 按标题删除任务时出错: {str(e)}"
+
 
     def delete_tasks_by_time_range(self, start_date=None, end_date=None, show_completed=True):
         """按时间范围批量删除任务"""
@@ -1294,6 +1310,7 @@ AI：```json
             error_msg = f"❌ 按时间范围删除任务时出错: {str(e)}"
             print(error_msg)
             return error_msg
+
 
     def create_event(self, summary, description="", start_time=None, end_time=None,
                      reminder_minutes=30, priority="medium"):
@@ -1332,6 +1349,7 @@ AI：```json
             print(error_msg)
             return error_msg
 
+
     def query_events(self, days=30, max_results=20):
         """查询日历事件"""
         try:
@@ -1348,6 +1366,7 @@ AI：```json
         except Exception as e:
             return f"❌ 查询日历事件时出错: {str(e)}"
 
+
     def update_event_status(self, event_id, status="completed"):
         """更新事件状态"""
         try:
@@ -1355,6 +1374,7 @@ AI：```json
             return result.get("message", result.get("error", "状态更新完成"))
         except Exception as e:
             return f"❌ 更新事件状态时出错: {str(e)}"
+
 
     def delete_event(self, event_id):
         """删除日历事件"""
@@ -1364,6 +1384,7 @@ AI：```json
         except Exception as e:
             return f"❌ 删除日历事件时出错: {str(e)}"
 
+
     def delete_event_by_summary(self, summary, days=30):
         """根据标题删除日历事件"""
         try:
@@ -1371,6 +1392,7 @@ AI：```json
             return result.get("message", result.get("error", "删除完成"))
         except Exception as e:
             return f"❌ 按标题删除事件时出错: {str(e)}"
+
 
     def delete_events_by_time_range(self, start_date=None, end_date=None):
         """按时间范围批量删除日历事件"""
@@ -1395,8 +1417,9 @@ AI：```json
             print(error_msg)
             return error_msg
 
-    def extract_tool_call(self, llm_response):
-        """从LLM响应中提取工具调用指令"""
+
+    def extract_tool_calls(self, llm_response):
+        """从LLM响应中提取工具调用指令 - 支持多个工具调用"""
         print(f"🔍 解析LLM响应: {llm_response}")
 
         if "```json" in llm_response and "```" in llm_response:
@@ -1406,10 +1429,38 @@ AI：```json
                 json_str = llm_response[start:end].strip()
                 print(f"📦 提取到JSON代码块: {json_str}")
 
-                tool_data = json.loads(json_str)
-                if isinstance(tool_data, dict) and "action" in tool_data and "parameters" in tool_data:
-                    print(f"✅ 成功解析工具调用: {tool_data['action']}")
-                    return tool_data
+                # 尝试解析为JSON
+                parsed_data = json.loads(json_str)
+
+                # 检查是单个工具调用还是多个工具调用
+                if isinstance(parsed_data, dict):
+                    # 单个工具调用
+                    if "action" in parsed_data and "parameters" in parsed_data:
+                        print(f"✅ 成功解析单个工具调用: {parsed_data['action']}")
+                        return [parsed_data]
+                    else:
+                        print("❌ 单个工具调用格式不正确")
+                        return None
+                elif isinstance(parsed_data, list):
+                    # 多个工具调用
+                    valid_tools = []
+                    for tool_data in parsed_data:
+                        if isinstance(tool_data, dict) and "action" in tool_data and "parameters" in tool_data:
+                            valid_tools.append(tool_data)
+                            print(f"✅ 成功解析工具调用: {tool_data['action']}")
+                        else:
+                            print(f"❌ 工具调用格式不正确: {tool_data}")
+
+                    if valid_tools:
+                        print(f"✅ 成功解析 {len(valid_tools)} 个工具调用")
+                        return valid_tools
+                    else:
+                        print("❌ 没有有效的工具调用")
+                        return None
+                else:
+                    print("❌ JSON格式不正确")
+                    return None
+
             except json.JSONDecodeError as e:
                 print(f"❌ JSON解析失败: {e}")
                 return None
@@ -1419,6 +1470,7 @@ AI：```json
 
         print("❌ 未找到有效的工具调用")
         return None
+
 
     async def call_tool(self, action, parameters):
         """统一工具调用入口 - 异步版本"""
@@ -1523,8 +1575,9 @@ AI：```json
             print(error_msg)
             return error_msg
 
+
     async def process_request(self, user_input):
-        """处理用户请求（异步版本）"""
+        """处理用户请求（异步版本）- 支持多个工具调用"""
         print(f"👤 用户输入: {user_input}")
 
         messages = [
@@ -1542,27 +1595,47 @@ AI：```json
             llm_response = response.choices[0].message.content.strip()
             print(f"🤖 LLM原始响应: {llm_response}")
 
-            # 检查工具调用
-            tool_data = self.extract_tool_call(llm_response)
-            if tool_data:
-                print(f"🔧 检测到工具调用: {tool_data['action']}")
-                tool_result = await self.call_tool(tool_data["action"], tool_data["parameters"])
+            # 检查工具调用 - 支持多个工具调用
+            tool_calls = self.extract_tool_calls(llm_response)
+            if tool_calls:
+                print(f"🔧 检测到 {len(tool_calls)} 个工具调用")
 
-                # 特殊处理股票分析工具，返回PDF二进制数据
-                if tool_data["action"] == "generate_stock_report" and isinstance(tool_result,
-                                                                                 dict) and tool_result.get(
-                    "success"):
-                    return {
-                        "type": "stock_pdf",
-                        "success": True,
-                        "pdf_binary": tool_result.get("pdf_binary"),
-                        "message": tool_result.get("message"),
-                        "stock_name": tool_result.get("stock_name")
-                    }
+                results = []
+                stock_pdf_result = None
+
+                # 按顺序执行所有工具调用
+                for i, tool_data in enumerate(tool_calls, 1):
+                    print(f"🔄 执行第 {i}/{len(tool_calls)} 个工具: {tool_data['action']}")
+
+                    tool_result = await self.call_tool(tool_data["action"], tool_data["parameters"])
+
+                    # 特殊处理股票分析工具，返回PDF二进制数据
+                    if tool_data["action"] == "generate_stock_report" and isinstance(tool_result, dict) and tool_result.get(
+                            "success"):
+                        stock_pdf_result = {
+                            "type": "stock_pdf",
+                            "success": True,
+                            "pdf_binary": tool_result.get("pdf_binary"),
+                            "message": tool_result.get("message"),
+                            "stock_name": tool_result.get("stock_name")
+                        }
+                        results.append(stock_pdf_result["message"])
+                    else:
+                        results.append(str(tool_result))
+
+                    # 添加工具间的延迟，避免API限制
+                    if i < len(tool_calls):
+                        await asyncio.sleep(1)
+
+                # 如果有股票PDF结果，优先返回
+                if stock_pdf_result:
+                    return stock_pdf_result
                 else:
+                    # 合并所有工具执行结果
+                    combined_result = "\n\n".join([f"任务 {i + 1}: {result}" for i, result in enumerate(results)])
                     return {
                         "type": "text",
-                        "content": str(tool_result),  # 确保返回字符串
+                        "content": f"✅ 所有任务执行完成:\n\n{combined_result}",
                         "success": True
                     }
             else:
@@ -1582,36 +1655,27 @@ AI：```json
                 "success": False
             }
 
-
 async def smart_assistant(user_input):
     """智能助手主函数 - 异步版本"""
     agent = DeepseekAgent()
     result = await agent.process_request(user_input)
     return result
 
-
-# 测试函数
+# 测试函数 - 更新为支持多个任务
 async def test_all_features():
-    """测试所有功能"""
+    """测试所有功能 - 支持多个任务"""
     test_cases = [
-        # 日历事件测试
-        # "创建日历事件：明天下午2点团队会议，讨论项目进度，提前15分钟提醒我",
-        # "查看我未来一周的日程安排",
-        #
-        # # 任务管理测试
-        # "创建任务：周五前完成产品设计文档，这是一个高优先级的任务",
-        # "查看我所有的待办任务",
-
-        # 股票分析测试
-        "生成腾讯控股的股票分析报告"
-        # "分析贵州茅台的股票情况",
-
-        # # 时间范围删除测试
-        # "删除10月份的所有任务",
-        # "清理下周的所有日历事件",
+    # 单个任务测试
+    # "生成腾讯控股的股票分析报告",
+    # # 多个任务测试
+    # "创建明天下午2点的团队会议，并生成贵州茅台的股票分析报告",
+    # "查看我的待办任务，然后查询未来7天的日历事件",
+    # "删除10月份的所有任务，并清理下周的所有日历事件",
+    # "创建一个高优先级任务：完成项目报告，截止到周五下午6点，然后查看所有任务"
+    "创建下面三个不同的提醒任务：1.2026年6月10日，老婆生日，提前7天，这7天里每天提醒我; 2. 2026年10月1日早上8点，爸爸生日; 3. 2025年11月8日，结婚纪念日，提前7天，这7天里每天提醒我。"
     ]
 
-    print("🧪 测试所有功能")
+    print("🧪 测试所有功能（支持多个任务）")
     print("=" * 50)
 
     for i, test_case in enumerate(test_cases, 1):
@@ -1623,13 +1687,11 @@ async def test_all_features():
                 print(f"   股票名称: {result.get('stock_name')}")
                 print(f"   PDF大小: {len(result.get('pdf_binary', b''))} 字节")
                 print(f"   消息: {result.get('message')}")
-                # 这里可以添加上传PDF到其他服务的代码
             else:
                 print(f"结果: {result.get('content', '')}")
         except Exception as e:
             print(f"❌ 测试失败: {e}")
-        print("-" * 30)
-
+        print("-" * 50)
 
 if __name__ == '__main__':
     # 测试所有功能
