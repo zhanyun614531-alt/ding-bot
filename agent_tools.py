@@ -1693,7 +1693,8 @@ AI：```json
                 # phone = parameters.get("phone", None)
 
                 # 先识别快递公司
-                com = self.kuaidi.identify_company(num)
+                # com = self.kuaidi.identify_company(num)
+                com = None
 
                 # 查询物流信息
                 logistics_info = self.kuaidi.kuaidi_track(com, num)
