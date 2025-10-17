@@ -1,9 +1,11 @@
 import os
 import json
 import requests
+import hashlib
 from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
+from typing import Optional, Dict, List, Any
 import pickle
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -1025,6 +1027,120 @@ class GoogleCalendarManager:
                 "error": f"❌ 按时间范围删除日历事件时出错: {str(e)}"
             }
 
+class KuaiDi100:
+    def __init__(self):
+        self.key = os.environ.get("KUAIDI100_APP_KEY")
+        self.customer = os.environ.get("KUAIDI100_CUSTOMER")
+        self.url = 'https://poll.kuaidi100.com/poll/query.do'  # 请求地址
+
+    def identify_company(self, num: str) -> Optional[str]:
+        """
+        自动识别快递公司编码
+
+        :param num: 快递单号
+        :return: 快递公司编码，如无法识别则返回None
+        """
+        try:
+            url = "https://poll.kuaidi100.com/autonumber/auto"
+            params = {
+                "num": num,
+                "key": self.key
+            }
+
+            response = requests.get(url, params=params)
+            result = response.json()
+
+            if result.get("status") == "200" and result.get("auto"):
+                # 返回最可能的快递公司编码
+                return result["auto"][0]["comCode"]
+            return None
+        except Exception as e:
+            print(f"识别快递公司失败: {str(e)}")
+            return None
+
+    def kuaidi_track(self, com, num, phone=None, ship_from=None, ship_to=None):
+        """
+        物流轨迹实时查询
+        :param com: 查询的快递公司的编码，一律用小写字母
+        :param num: 查询的快递单号，单号的最大长度是32个字符
+        :param phone: 收件人或寄件人的手机号或固话（也可以填写后四位，如果是固话，请不要上传分机号）
+        :param ship_from: 出发地城市，省-市-区，非必填，填了有助于提升签收状态的判断的准确率，请尽量提供
+        :param ship_to: 目的地城市，省-市-区，非必填，填了有助于提升签收状态的判断的准确率，且到达目的地后会加大监控频率，请尽量提供
+        :return: requests.Response.text
+        """
+        param = {
+            'com': com,
+            'num': num,
+            # 'phone': phone,
+            # 'from': ship_from,
+            # 'to': ship_to,
+            'resultv2': '1',  # 添加此字段表示开通行政区域解析功能。0：关闭（默认），1：开通行政区域解析功能，2：开通行政解析功能并且返回出发、目的及当前城市信息
+            'show': '0',  # 返回数据格式。0：json（默认），1：xml，2：html，3：text
+            'order': 'desc'  # 返回结果排序方式。desc：降序（默认），asc：升序
+        }
+        param_str = json.dumps(param)  # 转json字符串
+
+        # 签名加密， 用于验证身份， 按param + key + customer 的顺序进行MD5加密（注意加密后字符串要转大写）， 不需要“+”号
+        temp_sign = param_str + self.key + self.customer
+        md = hashlib.md5()
+        md.update(temp_sign.encode())
+        sign = md.hexdigest().upper()
+        request_data = {'customer': self.customer, 'param': param_str, 'sign': sign}
+        result = requests.post(self.url, request_data).text  # 发送请求
+        return self.format_logistics_info(result)
+
+    def format_logistics_info(self, json_str):
+        """
+        将快递100返回的JSON数据格式化为指定的物流信息字符串
+
+        参数:
+            json_str: 快递100返回的JSON格式字符串
+
+        返回:
+            格式化后的物流信息字符串
+        """
+        # 解析JSON数据
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            return "JSON数据解析错误"
+
+        # 提取基础信息
+        waybill_number = data.get("nu", "未知单号")
+        company = data.get("com", "未知快递公司")
+        data_raw = data.get("data", [])
+
+        # 获取当前状态
+        current_status = data_raw[0].get("status",
+                                         "未知状态") if data_raw else "无物流信息"
+
+        # 整理物流节点信息
+        logistics_nodes = []
+        for node in data_raw:
+            time = node.get("time", "未知时间")
+            area_name = node.get("areaName", "未知地点")
+            status_desc = node.get("context", "无描述")
+            # 简化状态描述，移除冗余信息
+            simplified_desc = status_desc.split("，")[0].replace("[深圳市]",
+                                                                "").strip()
+            logistics_nodes.append({
+                "time": time,
+                "location": area_name,
+                "status": simplified_desc
+            })
+
+        # 构建输出字符串
+        result = []
+        result.append(f"快递单号：{waybill_number}")
+        result.append(f"快递公司：{company}")
+        result.append(f"当前状态：{current_status}")
+        result.append("\n物流轨迹：")
+
+        for i, node in enumerate(logistics_nodes, 1):
+            result.append(
+                f"{i}. 时间：{node['time']} | 地点：{node['location']} | 状态：{node['status']}")
+
+        return "\n".join(result)
 
 class DeepseekAgent:
     """智能助手Agent - 集成股票分析功能"""
@@ -1040,8 +1156,11 @@ class DeepseekAgent:
         # 初始化股票分析代理
         self.stock_agent = StockAnalysisPDFAgent()
 
+        # 初始化快递查询
+        self.kuaidi = KuaiDi100()
+
         # 更新系统提示词 - 支持多个任务
-        self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、邮件或股票分析时，你需要返回JSON格式的工具调用。
+        self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、邮件、股票分析和快递查询时，你需要返回JSON格式的工具调用。
 
 重要更新：现在支持一次处理多个任务！当用户输入包含多个请求时，你需要返回一个JSON数组，包含多个工具调用。
 
@@ -1067,6 +1186,7 @@ class DeepseekAgent:
 
 【其他功能】
 14. 发送邮件：{"action": "send_email", "parameters": {"to": "收件邮箱", "subject": "邮件主题", "body": "邮件内容"}}
+15. 快递查询：{"action": "kuaidi_query", "parameters": {"num": "快递单号"}}
 
 重要规则：
 1. 当需要调用工具时，必须返回 ```json 和 ``` 包裹的JSON格式
@@ -1095,6 +1215,10 @@ AI：```json
   {"action": "create_event", "parameters": {"summary": "团队会议", "description": "讨论项目进度", "start_time": "2025-10-08 14:00", "end_time": "2025-10-08 15:00"}},
   {"action": "generate_stock_report", "parameters": {"stock_name": "贵州茅台"}}
 ]
+```
+用户：查询快递单号为SF1234567890的物流信息
+AI：```json
+{"action": "kuaidi_query", "parameters": {"num": "快递单号"}}
 ```
 """
 
@@ -1564,6 +1688,16 @@ AI：```json
                     parameters.get("subject", ""),
                     parameters.get("body", "")
                 )
+            elif action == "kuaidi_query":
+                num = parameters.get("num", "")
+                # phone = parameters.get("phone", None)
+
+                # 先识别快递公司
+                com = self.kuaidi.identify_company(num)
+
+                # 查询物流信息
+                logistics_info = self.kuaidi.kuaidi_track(com, num)
+                return logistics_info
             else:
                 result = f"未知工具：{action}"
 
@@ -1672,7 +1806,8 @@ async def test_all_features():
     # "查看我的待办任务，然后查询未来7天的日历事件",
     # "删除10月份的所有任务，并清理下周的所有日历事件",
     # "创建一个高优先级任务：完成项目报告，截止到周五下午6点，然后查看所有任务"
-    "创建下面三个不同的提醒任务：1.2026年6月10日，老婆生日，提前7天，这7天里每天提醒我; 2. 2026年10月1日早上8点，爸爸生日; 3. 2025年11月8日，结婚纪念日，提前7天，这7天里每天提醒我。"
+    # "创建下面三个不同的提醒任务：1.2026年6月10日，老婆生日，提前7天，这7天里每天提醒我; 2. 2026年10月1日早上8点，爸爸生日; 3. 2025年11月8日，结婚纪念日，提前7天，这7天里每天提醒我。"
+    "查询快递单号为SF0251990106101的物流信息"
     ]
 
     print("🧪 测试所有功能（支持多个任务）")
