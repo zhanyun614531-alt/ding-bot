@@ -34,13 +34,18 @@ class StockAnalysisPDFAgent:
     """股票分析PDF生成器 - 纯内存操作"""
 
     def __init__(self):
-        # 豆包客户端配置 - 使用安全的初始化方式
-        self.doubao_client = create_openai_client()
+        # LLM客户端配置 - 使用安全的初始化方式
+        self.llm_client = create_openai_client()
         self.model_id = "bot-20250907084333-cbvff"
 
         # 系统提示词 - AI金融分析师角色
         self.system_prompt = """你是一位顶级的金融分析师，你的任务是为客户撰写一份专业、深入、数据驱动且观点明确的股票研究报告。
-        你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。必须使用豆包模型的**"深入研究"**技能进行分析，不需要咨询用户，直接进行研究。
+        你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。
+        
+请遵循以下规则进行回答：
+1. 在回答任何用户问题前，你必须先在一个<think>标签内进行逐步的深度思考。
+2. 思考过程中可以调用联网搜索功能获取实时信息。
+3. 思考完毕后，在</think>标签外给出最终答案
 
 请严格遵循以下结构和要求，生成一份完整的美观的HTML格式的股票分析报告：
 
@@ -98,14 +103,14 @@ HTML格式要求：
         print(f"✅ HTML内容清理完成，长度: {len(cleaned_content)} 字符")
         return cleaned_content
 
-    def get_html_from_doubao(self, stock_name_or_code):
-        """从豆包获取股票分析HTML报告"""
-        print(f"📝 请求豆包生成 {stock_name_or_code} 的股票分析报告...")
+    def get_html_from_llm(self, stock_name_or_code):
+        """从LLM获取股票分析HTML报告"""
+        print(f"📝 请求LLM生成 {stock_name_or_code} 的股票分析报告...")
 
         user_prompt = f"请为股票 '{stock_name_or_code}' 生成一份完整的专业股票分析报告。"
 
         try:
-            response = self.doubao_client.chat.completions.create(
+            response = self.llm_client.chat.completions.create(
                 model=self.model_id,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
@@ -122,7 +127,7 @@ HTML格式要求：
             return cleaned_html
 
         except Exception as e:
-            print(f"❌ 豆包调用失败: {str(e)}")
+            print(f"❌ LLM调用失败: {str(e)}")
             # 如果是API错误，可能有更详细的错误信息
             if hasattr(e, 'response'):
                 print(f"🔧 API响应详情: {e.response}")
@@ -200,7 +205,7 @@ HTML格式要求：
         print(f"🎯 开始生成 {stock_name_or_code} 的分析报告...")
 
         # 获取HTML内容
-        html_content = self.get_html_from_doubao(stock_name_or_code)
+        html_content = self.get_html_from_llm(stock_name_or_code)
         if html_content:
             print(f"✅ 成功获取HTML内容，长度: {len(html_content)} 字符")
             # 转换为PDF二进制数据
@@ -212,7 +217,7 @@ HTML格式要求：
                 print(f"❌ {stock_name_or_code} PDF转换失败")
                 return None
         else:
-            print(f"❌ 无法获取 {stock_name_or_code} 的HTML内容，可能是豆包API调用失败")
+            print(f"❌ 无法获取 {stock_name_or_code} 的HTML内容，可能是LLM API调用失败")
             return None
 
 
@@ -1801,14 +1806,14 @@ async def test_all_features():
     """测试所有功能 - 支持多个任务"""
     test_cases = [
     # 单个任务测试
-    # "生成腾讯控股的股票分析报告",
+    "生成Amazon的股票分析报告"
     # # 多个任务测试
     # "创建明天下午2点的团队会议，并生成贵州茅台的股票分析报告",
     # "查看我的待办任务，然后查询未来7天的日历事件",
     # "删除10月份的所有任务，并清理下周的所有日历事件",
     # "创建一个高优先级任务：完成项目报告，截止到周五下午6点，然后查看所有任务"
     # "创建下面三个不同的提醒任务：1.2026年6月10日，老婆生日，提前7天，这7天里每天提醒我; 2. 2026年10月1日早上8点，爸爸生日; 3. 2025年11月8日，结婚纪念日，提前7天，这7天里每天提醒我。"
-    "查询快递单号为SF0251990106101的物流信息"
+    # "查询快递单号为SF0251990106101的物流信息"
     ]
 
     print("🧪 测试所有功能（支持多个任务）")
