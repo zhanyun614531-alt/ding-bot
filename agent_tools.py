@@ -1,11 +1,16 @@
-import os
+import feedparser
+import time
+import hashlib
+import urllib3
+import ssl
+from bs4 import BeautifulSoup
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+import logging
 import json
 import requests
-import hashlib
 from openai import OpenAI
-from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, List, Any
 import pickle
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -17,6 +22,15 @@ from playwright.async_api import async_playwright
 import re
 import asyncio
 import traceback
+import os
+from dotenv import load_dotenv
+
+# 禁用SSL警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 设置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("TechNewsTool")
 
 # 加载环境变量
 load_dotenv()
@@ -34,18 +48,13 @@ class StockAnalysisPDFAgent:
     """股票分析PDF生成器 - 纯内存操作"""
 
     def __init__(self):
-        # LLM客户端配置 - 使用安全的初始化方式
-        self.llm_client = create_openai_client()
+        # 豆包客户端配置 - 使用安全的初始化方式
+        self.doubao_client = create_openai_client()
         self.model_id = "bot-20250907084333-cbvff"
 
         # 系统提示词 - AI金融分析师角色
         self.system_prompt = """你是一位顶级的金融分析师，你的任务是为客户撰写一份专业、深入、数据驱动且观点明确的股票研究报告。
-        你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。
-        
-请遵循以下规则进行回答：
-1. 在回答任何用户问题前，你必须先在一个<think>标签内进行逐步的深度思考。
-2. 思考过程中可以调用联网搜索功能获取实时信息。
-3. 思考完毕后，在</think>标签外给出最终答案
+        你的分析必须客观、严谨，并结合基本面、技术面和市场情绪进行综合判断。必须使用豆包模型的**"深入研究"**技能进行分析，不需要咨询用户，直接进行研究。
 
 请严格遵循以下结构和要求，生成一份完整的美观的HTML格式的股票分析报告：
 
@@ -103,14 +112,14 @@ HTML格式要求：
         print(f"✅ HTML内容清理完成，长度: {len(cleaned_content)} 字符")
         return cleaned_content
 
-    def get_html_from_llm(self, stock_name_or_code):
-        """从LLM获取股票分析HTML报告"""
-        print(f"📝 请求LLM生成 {stock_name_or_code} 的股票分析报告...")
+    def get_html_from_doubao(self, stock_name_or_code):
+        """从豆包获取股票分析HTML报告"""
+        print(f"📝 请求豆包生成 {stock_name_or_code} 的股票分析报告...")
 
         user_prompt = f"请为股票 '{stock_name_or_code}' 生成一份完整的专业股票分析报告。"
 
         try:
-            response = self.llm_client.chat.completions.create(
+            response = self.doubao_client.chat.completions.create(
                 model=self.model_id,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
@@ -127,7 +136,7 @@ HTML格式要求：
             return cleaned_html
 
         except Exception as e:
-            print(f"❌ LLM调用失败: {str(e)}")
+            print(f"❌ 豆包调用失败: {str(e)}")
             # 如果是API错误，可能有更详细的错误信息
             if hasattr(e, 'response'):
                 print(f"🔧 API响应详情: {e.response}")
@@ -205,7 +214,7 @@ HTML格式要求：
         print(f"🎯 开始生成 {stock_name_or_code} 的分析报告...")
 
         # 获取HTML内容
-        html_content = self.get_html_from_llm(stock_name_or_code)
+        html_content = self.get_html_from_doubao(stock_name_or_code)
         if html_content:
             print(f"✅ 成功获取HTML内容，长度: {len(html_content)} 字符")
             # 转换为PDF二进制数据
@@ -217,7 +226,7 @@ HTML格式要求：
                 print(f"❌ {stock_name_or_code} PDF转换失败")
                 return None
         else:
-            print(f"❌ 无法获取 {stock_name_or_code} 的HTML内容，可能是LLM API调用失败")
+            print(f"❌ 无法获取 {stock_name_or_code} 的HTML内容，可能是豆包API调用失败")
             return None
 
 
@@ -1032,120 +1041,6 @@ class GoogleCalendarManager:
                 "error": f"❌ 按时间范围删除日历事件时出错: {str(e)}"
             }
 
-class KuaiDi100:
-    def __init__(self):
-        self.key = os.environ.get("KUAIDI100_APP_KEY")
-        self.customer = os.environ.get("KUAIDI100_CUSTOMER")
-        self.url = 'https://poll.kuaidi100.com/poll/query.do'  # 请求地址
-
-    def identify_company(self, num: str) -> Optional[str]:
-        """
-        自动识别快递公司编码
-
-        :param num: 快递单号
-        :return: 快递公司编码，如无法识别则返回None
-        """
-        try:
-            url = "https://poll.kuaidi100.com/autonumber/auto"
-            params = {
-                "num": num,
-                "key": self.key
-            }
-
-            response = requests.get(url, params=params)
-            result = response.json()
-
-            if result.get("status") == "200" and result.get("auto"):
-                # 返回最可能的快递公司编码
-                return result["auto"][0]["comCode"]
-            return None
-        except Exception as e:
-            print(f"识别快递公司失败: {str(e)}")
-            return None
-
-    def kuaidi_track(self, com, num, phone=None, ship_from=None, ship_to=None):
-        """
-        物流轨迹实时查询
-        :param com: 查询的快递公司的编码，一律用小写字母
-        :param num: 查询的快递单号，单号的最大长度是32个字符
-        :param phone: 收件人或寄件人的手机号或固话（也可以填写后四位，如果是固话，请不要上传分机号）
-        :param ship_from: 出发地城市，省-市-区，非必填，填了有助于提升签收状态的判断的准确率，请尽量提供
-        :param ship_to: 目的地城市，省-市-区，非必填，填了有助于提升签收状态的判断的准确率，且到达目的地后会加大监控频率，请尽量提供
-        :return: requests.Response.text
-        """
-        param = {
-            'com': com,
-            'num': num,
-            # 'phone': phone,
-            # 'from': ship_from,
-            # 'to': ship_to,
-            'resultv2': '1',  # 添加此字段表示开通行政区域解析功能。0：关闭（默认），1：开通行政区域解析功能，2：开通行政解析功能并且返回出发、目的及当前城市信息
-            'show': '0',  # 返回数据格式。0：json（默认），1：xml，2：html，3：text
-            'order': 'desc'  # 返回结果排序方式。desc：降序（默认），asc：升序
-        }
-        param_str = json.dumps(param)  # 转json字符串
-
-        # 签名加密， 用于验证身份， 按param + key + customer 的顺序进行MD5加密（注意加密后字符串要转大写）， 不需要“+”号
-        temp_sign = param_str + self.key + self.customer
-        md = hashlib.md5()
-        md.update(temp_sign.encode())
-        sign = md.hexdigest().upper()
-        request_data = {'customer': self.customer, 'param': param_str, 'sign': sign}
-        result = requests.post(self.url, request_data).text  # 发送请求
-        return self.format_logistics_info(result)
-
-    def format_logistics_info(self, json_str):
-        """
-        将快递100返回的JSON数据格式化为指定的物流信息字符串
-
-        参数:
-            json_str: 快递100返回的JSON格式字符串
-
-        返回:
-            格式化后的物流信息字符串
-        """
-        # 解析JSON数据
-        try:
-            data = json.loads(json_str)
-        except json.JSONDecodeError:
-            return "JSON数据解析错误"
-
-        # 提取基础信息
-        waybill_number = data.get("nu", "未知单号")
-        company = data.get("com", "未知快递公司")
-        data_raw = data.get("data", [])
-
-        # 获取当前状态
-        current_status = data_raw[0].get("status",
-                                         "未知状态") if data_raw else "无物流信息"
-
-        # 整理物流节点信息
-        logistics_nodes = []
-        for node in data_raw:
-            time = node.get("time", "未知时间")
-            area_name = node.get("areaName", "未知地点")
-            status_desc = node.get("context", "无描述")
-            # 简化状态描述，移除冗余信息
-            simplified_desc = status_desc.split("，")[0].replace("[深圳市]",
-                                                                "").strip()
-            logistics_nodes.append({
-                "time": time,
-                "location": area_name,
-                "status": simplified_desc
-            })
-
-        # 构建输出字符串
-        result = []
-        result.append(f"快递单号：{waybill_number}")
-        result.append(f"快递公司：{company}")
-        result.append(f"当前状态：{current_status}")
-        result.append("\n物流轨迹：")
-
-        for i, node in enumerate(logistics_nodes, 1):
-            result.append(
-                f"{i}. 时间：{node['time']} | 地点：{node['location']} | 状态：{node['status']}")
-
-        return "\n".join(result)
 
 class DeepseekAgent:
     """智能助手Agent - 集成股票分析功能"""
@@ -1161,11 +1056,11 @@ class DeepseekAgent:
         # 初始化股票分析代理
         self.stock_agent = StockAnalysisPDFAgent()
 
-        # 初始化快递查询
-        self.kuaidi = KuaiDi100()
+        # 初始化科技新闻代理
+        self.tech_news_agent = TechNewsTool(TechNewsToolConfig)
 
         # 更新系统提示词 - 支持多个任务
-        self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、邮件、股票分析和快递查询时，你需要返回JSON格式的工具调用。
+        self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、邮件或股票分析时，你需要返回JSON格式的工具调用。
 
 重要更新：现在支持一次处理多个任务！当用户输入包含多个请求时，你需要返回一个JSON数组，包含多个工具调用。
 
@@ -1189,9 +1084,10 @@ class DeepseekAgent:
 【股票分析功能】
 13. 生成股票分析报告：{"action": "generate_stock_report", "parameters": {"stock_name": "股票名称或代码"}}
 
+【科技新闻汇总功能】
+14. 生成科技新闻汇总报告：{"action": "generate_tech_news_report", "parameters": {"total_articles": 10}}
 【其他功能】
-14. 发送邮件：{"action": "send_email", "parameters": {"to": "收件邮箱", "subject": "邮件主题", "body": "邮件内容"}}
-15. 快递查询：{"action": "kuaidi_query", "parameters": {"num": "快递单号"}}
+15. 发送邮件：{"action": "send_email", "parameters": {"to": "收件邮箱", "subject": "邮件主题", "body": "邮件内容"}}
 
 重要规则：
 1. 当需要调用工具时，必须返回 ```json 和 ``` 包裹的JSON格式
@@ -1220,10 +1116,6 @@ AI：```json
   {"action": "create_event", "parameters": {"summary": "团队会议", "description": "讨论项目进度", "start_time": "2025-10-08 14:00", "end_time": "2025-10-08 15:00"}},
   {"action": "generate_stock_report", "parameters": {"stock_name": "贵州茅台"}}
 ]
-```
-用户：查询快递单号为SF1234567890的物流信息
-AI：```json
-{"action": "kuaidi_query", "parameters": {"num": "快递单号"}}
 ```
 """
 
@@ -1608,13 +1500,15 @@ AI：```json
 
         try:
             if action == "create_task":
-                return self.create_task(
+                result = self.create_task(
                     title=parameters.get("title", ""),
                     notes=parameters.get("notes", ""),
                     due_date=parameters.get("due_date"),
                     reminder_minutes=parameters.get("reminder_minutes", 60),
                     priority=parameters.get("priority", "medium")
                 )
+                print(f"📝 创建任务结果: {result}")
+                return result
             elif action == "query_tasks":
                 return self.query_tasks(
                     show_completed=parameters.get("show_completed", False),
@@ -1687,25 +1581,24 @@ AI：```json
                         "success": False,
                         "error": "❌ 股票分析报告生成失败"
                     }
+            elif action == "generate_tech_news_report":
+                # 返回科技新闻汇总结果
+                result = self.tech_news_agent.execute()
+                if result:
+                    return {
+                        "success": True,
+                        "message": f"✅ 科技新闻汇总生成成功",
+                        "news_report": result
+                    }
             elif action == "send_email":
                 return self.send_email(
                     parameters.get("to", ""),
                     parameters.get("subject", ""),
                     parameters.get("body", "")
                 )
-            elif action == "kuaidi_query":
-                num = parameters.get("num", "")
-                # phone = parameters.get("phone", None)
-
-                # 先识别快递公司
-                # com = self.kuaidi.identify_company(num)
-                com = None
-
-                # 查询物流信息
-                logistics_info = self.kuaidi.kuaidi_track(com, num)
-                return logistics_info
             else:
                 result = f"未知工具：{action}"
+                print(f"❌ 未知工具: {action}")
 
             print(f"✅ 工具执行结果: {result}")
             return result
@@ -1713,8 +1606,9 @@ AI：```json
         except Exception as e:
             error_msg = f"❌ 执行工具 {action} 时出错: {str(e)}"
             print(error_msg)
+            import traceback
+            print(f"📋 详细错误信息: {traceback.format_exc()}")
             return error_msg
-
 
     async def process_request(self, user_input):
         """处理用户请求（异步版本）- 支持多个工具调用"""
@@ -1742,30 +1636,71 @@ AI：```json
 
                 results = []
                 stock_pdf_result = None
+                success_count = 0
+                failure_count = 0
 
                 # 按顺序执行所有工具调用
                 for i, tool_data in enumerate(tool_calls, 1):
                     print(f"🔄 执行第 {i}/{len(tool_calls)} 个工具: {tool_data['action']}")
+                    print(f"📋 工具参数: {tool_data['parameters']}")
 
-                    tool_result = await self.call_tool(tool_data["action"], tool_data["parameters"])
+                    try:
+                        tool_result = await self.call_tool(tool_data["action"], tool_data["parameters"])
 
-                    # 特殊处理股票分析工具，返回PDF二进制数据
-                    if tool_data["action"] == "generate_stock_report" and isinstance(tool_result, dict) and tool_result.get(
-                            "success"):
-                        stock_pdf_result = {
-                            "type": "stock_pdf",
-                            "success": True,
-                            "pdf_binary": tool_result.get("pdf_binary"),
-                            "message": tool_result.get("message"),
-                            "stock_name": tool_result.get("stock_name")
-                        }
-                        results.append(stock_pdf_result["message"])
-                    else:
-                        results.append(str(tool_result))
+                        # 检查工具执行结果
+                        if isinstance(tool_result, str):
+                            if "❌" in tool_result or "失败" in tool_result:
+                                failure_count += 1
+                                print(f"❌ 工具执行失败: {tool_result}")
+                            else:
+                                success_count += 1
+                                print(f"✅ 工具执行成功: {tool_result}")
+                        elif isinstance(tool_result, dict):
+                            if tool_result.get("success"):
+                                success_count += 1
+                                print(f"✅ 工具执行成功: {tool_result.get('message', '成功')}")
+                            else:
+                                failure_count += 1
+                                print(f"❌ 工具执行失败: {tool_result.get('error', '未知错误')}")
+
+                        # 特殊处理股票分析工具，返回PDF二进制数据
+                        if tool_data["action"] == "generate_stock_report" and isinstance(tool_result,
+                                                                                         dict) and tool_result.get(
+                                "success"):
+                            stock_pdf_result = {
+                                "type": "stock_pdf",
+                                "success": True,
+                                "pdf_binary": tool_result.get("pdf_binary"),
+                                "message": tool_result.get("message"),
+                                "stock_name": tool_result.get("stock_name")
+                            }
+                            results.append(stock_pdf_result["message"])
+                        elif tool_data["action"] == "generate_tech_news_report" and isinstance(tool_result,
+                                                                                         dict) and tool_result.get(
+                                "success"):
+                            tech_news_report_result = {
+                                "type": "news_report",
+                                "success": True,
+                                "message": tool_result.get("message")
+                            }
+                            results.append(tech_news_report_result["message"])
+                        else:
+                            # 对于其他工具，直接添加结果字符串
+                            results.append(str(tool_result))
+
+                    except Exception as e:
+                        error_msg = f"❌ 执行工具 {tool_data['action']} 时发生异常: {str(e)}"
+                        print(error_msg)
+                        results.append(error_msg)
+                        failure_count += 1
 
                     # 添加工具间的延迟，避免API限制
                     if i < len(tool_calls):
+                        print(f"⏳ 等待1秒后执行下一个工具...")
                         await asyncio.sleep(1)
+
+                # 统计结果
+                print(f"📊 工具执行统计: 成功 {success_count} 个, 失败 {failure_count} 个")
 
                 # 如果有股票PDF结果，优先返回
                 if stock_pdf_result:
@@ -1773,10 +1708,11 @@ AI：```json
                 else:
                     # 合并所有工具执行结果
                     combined_result = "\n\n".join([f"任务 {i + 1}: {result}" for i, result in enumerate(results)])
+                    summary = f"✅ 所有任务执行完成:\n成功: {success_count} 个, 失败: {failure_count} 个\n\n{combined_result}"
                     return {
                         "type": "text",
-                        "content": f"✅ 所有任务执行完成:\n\n{combined_result}",
-                        "success": True
+                        "content": summary,
+                        "success": success_count > 0  # 只要有成功就认为是成功的
                     }
             else:
                 print("💬 无工具调用，直接返回LLM响应")
@@ -1789,6 +1725,8 @@ AI：```json
         except Exception as e:
             error_msg = f"处理请求时出错：{str(e)}"
             print(f"❌ {error_msg}")
+            import traceback
+            print(f"📋 详细错误信息: {traceback.format_exc()}")
             return {
                 "type": "text",
                 "content": error_msg,
@@ -1806,14 +1744,14 @@ async def test_all_features():
     """测试所有功能 - 支持多个任务"""
     test_cases = [
     # 单个任务测试
-    "生成Amazon的股票分析报告"
+    # "生成腾讯控股的股票分析报告",
     # # 多个任务测试
     # "创建明天下午2点的团队会议，并生成贵州茅台的股票分析报告",
     # "查看我的待办任务，然后查询未来7天的日历事件",
     # "删除10月份的所有任务，并清理下周的所有日历事件",
     # "创建一个高优先级任务：完成项目报告，截止到周五下午6点，然后查看所有任务"
     # "创建下面三个不同的提醒任务：1.2026年6月10日，老婆生日，提前7天，这7天里每天提醒我; 2. 2026年10月1日早上8点，爸爸生日; 3. 2025年11月8日，结婚纪念日，提前7天，这7天里每天提醒我。"
-    # "查询快递单号为SF0251990106101的物流信息"
+    "生成科技新闻汇总报告，包含10篇最新文章，并创建一个任务：阅读科技新闻摘要，截止到后天晚上8点"
     ]
 
     print("🧪 测试所有功能（支持多个任务）")
@@ -1833,6 +1771,807 @@ async def test_all_features():
         except Exception as e:
             print(f"❌ 测试失败: {e}")
         print("-" * 50)
+
+
+@dataclass
+class TechNewsToolConfig:
+    """科技新闻工具配置"""
+    doubao_api_key: Optional[str] = os.environ.get("ARK_API_KEY")
+    doubao_base_url: Optional[str] = "https://ark.cn-beijing.volces.com/api/v3/bots"
+    enable_ai_summary: bool = True
+    total_articles: int = 10
+    articles_per_source: int = 8
+    request_timeout: int = 15
+    delay_between_requests: float = 2.0
+
+
+@dataclass
+class Article:
+    """文章数据结构"""
+    title: str
+    link: str
+    source: str
+    description: str = ""
+    bilingual_summary: Optional[Dict[str, str]] = None
+    content: str = ""
+    keywords: List[str] = None
+
+    def __post_init__(self):
+        if self.keywords is None:
+            self.keywords = []
+
+
+class TechNewsTool:
+    """
+    科技新闻汇总工具
+
+    这个工具可以从多个权威科技媒体获取最新的科技新闻，
+    并使用AI生成中英文双语摘要，帮助用户快速了解前沿科技动态。
+    """
+
+    name = "tech_news_aggregator"
+    description = """
+    从多个权威科技媒体获取最新的科技新闻并生成AI摘要。
+
+    参数:
+    - enable_ai_summary (bool): 是否启用AI摘要，默认为True
+    - total_articles (int): 需要获取的文章总数，默认为10
+    - articles_per_source (int): 每个来源获取的文章数量，默认为8
+    - sources (list): 指定新闻来源，可选值: ['TechCrunch', 'Wired', '36Kr', 'MIT']，默认为全部
+
+    返回:
+    - 包含科技新闻标题、链接、来源和AI摘要的结构化数据
+    """
+
+    def __init__(self, config: TechNewsToolConfig):
+        """
+        初始化科技新闻工具
+
+        Args:
+            config: 工具配置
+        """
+        self.config = config
+
+        # 豆包客户端配置
+        self.doubao_client = None
+        if config.doubao_api_key and config.doubao_base_url:
+            try:
+                self.doubao_client = OpenAI(
+                    api_key=config.doubao_api_key,
+                    base_url=config.doubao_base_url
+                )
+                logger.info("豆包客户端初始化成功")
+            except Exception as e:
+                logger.error(f"豆包客户端初始化失败: {e}")
+
+        self.model_id = "bot-20250907084333-cbvff"
+
+        # 科技关键词定义
+        self.tech_keywords = [
+            # 人工智能相关
+            'AI', 'Artificial Intelligence', 'Machine Learning', 'Deep Learning', 'Neural Network',
+            'Large Language Model', 'LLM', 'GPT', 'Generative AI', 'Computer Vision',
+            'Natural Language Processing', 'NLP', 'Autonomous', '自动驾驶', '人工智能', '机器学习',
+
+            # 生物医药
+            'Biotech', 'Biopharma', 'Gene Editing', 'CRISPR', 'mRNA', 'Vaccine', 'Therapeutics',
+            'Precision Medicine', 'Clinical Trial', 'FDA approval', '生物技术', '基因编辑', '疫苗',
+            '医药', '临床试验',
+
+            # 机器人与自动化
+            'Robotics', 'Robot', 'Automation', 'Industrial Automation', 'Cobot', '无人机',
+            'Drone', '机器人', '自动化',
+
+            # 3D打印与先进制造
+            '3D Printing', 'Additive Manufacturing', 'Advanced Manufacturing', '3D打印',
+
+            # 能源技术
+            'Nuclear', 'Nuclear Energy', 'Fusion', 'Fission', 'Renewable Energy', 'Solar', 'Wind',
+            'Battery', 'Energy Storage', '核能', '核聚变', '可再生能源', '电池', '储能',
+
+            # 量子计算
+            'Quantum Computing', 'Quantum', 'Qubit', '量子计算', '量子',
+
+            # 太空技术
+            'Space', 'Satellite', 'Rocket', 'Spacecraft', '太空', '卫星', '火箭',
+
+            # 其他前沿科技
+            'Nanotechnology', 'Biometrics', 'VR', 'AR', 'Virtual Reality', 'Augmented Reality',
+            'Internet of Things', 'IoT', '5G', '6G', '半导体', '芯片', '纳米技术', '虚拟现实'
+        ]
+
+        # 非科技内容排除词
+        self.non_tech_indicators = [
+            'pizza', 'oven', 'vacuum', 'gift', 'sexy', 'dating', 'relationship',
+            'lice', 'craft', 'spa', 'butt lift', 'cosmetic', 'entertainment',
+            'financial', 'stock', 'investment', 'bank', 'loan', 'credit',
+            'shopping', 'retail', 'consumer', 'lifestyle', 'travel', 'food'
+        ]
+
+        # 中英文摘要系统提示词
+        self.bilingual_summary_prompt = """你是一位专业的科技新闻编辑，你的任务是为读者生成简洁、准确、有深度的科技新闻摘要。
+
+请严格遵循以下要求生成摘要：
+
+**语言要求：**
+必须同时提供中文和英文两种语言的摘要
+
+**格式要求：**
+中文摘要：[2-3句中文摘要]
+英文摘要：[2-3句英文摘要]
+
+**内容要求：**
+1. 用2-3句话概括新闻的核心内容
+2. 突出技术亮点、创新点和行业影响
+3. 指出该技术可能的应用场景或市场前景
+4. 语言简洁专业，避免营销术语
+5. 如果涉及具体数据或融资信息，请准确包含
+
+请严格按照上述格式输出，不要添加任何额外的说明或标记。"""
+
+        logger.info("科技新闻工具初始化完成")
+
+    def is_tech_related(self, title: str, description: str = "") -> bool:
+        """判断文章是否与前沿科技相关"""
+        combined_text = (title + " " + description).lower()
+
+        # 检查是否包含科技关键词
+        for keyword in self.tech_keywords:
+            if keyword.lower() in combined_text:
+                return True
+
+        # 排除明显非科技的内容
+        for indicator in self.non_tech_indicators:
+            if indicator in combined_text:
+                return False
+
+        return False
+
+    def extract_article_content(self, url: str) -> str:
+        """从文章URL提取核心内容"""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+
+            response = requests.get(url, headers=headers, timeout=self.config.request_timeout, verify=False)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # 移除不需要的标签
+            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
+                element.decompose()
+
+            # 尝试多种内容提取策略
+            content = ""
+            article_selectors = [
+                'article',
+                '.article-content',
+                '.post-content',
+                '.entry-content',
+                '.story-content',
+                '.content',
+                'main',
+                '[class*="article"]',
+                '[class*="content"]',
+                '[class*="post"]'
+            ]
+
+            for selector in article_selectors:
+                article_element = soup.select_one(selector)
+                if article_element:
+                    paragraphs = article_element.find_all(['p', 'h1', 'h2', 'h3'])
+                    text_content = []
+                    for p in paragraphs:
+                        text = p.get_text().strip()
+                        if len(text) > 50:
+                            text_content.append(text)
+
+                    if text_content:
+                        content = " ".join(text_content[:8])
+                        break
+
+            # 策略2: 如果没找到特定标签，提取所有段落
+            if not content or len(content) < 200:
+                all_paragraphs = soup.find_all('p')
+                paragraph_texts = []
+                for p in all_paragraphs:
+                    text = p.get_text().strip()
+                    if len(text) > 100:
+                        paragraph_texts.append(text)
+
+                if paragraph_texts:
+                    content = " ".join(paragraph_texts[:6])
+
+            # 清理内容
+            if content:
+                content = re.sub(r'\s+', ' ', content)
+                if len(content) > 1500:
+                    content = content[:1497] + "..."
+
+            return content if content else "无法提取文章内容"
+
+        except Exception as e:
+            logger.error(f"提取文章内容失败 {url}: {e}")
+            return f"提取内容时出错: {str(e)}"
+
+    def generate_bilingual_summary(self, title: str, content: str) -> Dict[str, str]:
+        """使用豆包LLM生成中英文双语摘要"""
+        if not self.doubao_client:
+            return {
+                "chinese": "豆包客户端未配置，无法生成AI摘要",
+                "english": "Doubao client not configured, unable to generate AI summary"
+            }
+
+        if "出错" in content or "无法提取" in content:
+            return {
+                "chinese": "无法获取文章内容，无法生成摘要",
+                "english": "Unable to retrieve article content, cannot generate summary"
+            }
+
+        try:
+            user_prompt = f"请为以下科技新闻生成中英文双语摘要：\n\n标题：{title}\n\n内容：{content}"
+
+            response = self.doubao_client.chat.completions.create(
+                model=self.model_id,
+                messages=[
+                    {"role": "system", "content": self.bilingual_summary_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=800,
+                temperature=0.3
+            )
+
+            full_summary = response.choices[0].message.content.strip()
+            return self._parse_bilingual_summary(full_summary)
+
+        except Exception as e:
+            logger.error(f"生成AI摘要失败: {e}")
+            error_msg = f"AI摘要生成失败: {str(e)}"
+            return {
+                "chinese": error_msg,
+                "english": f"AI summary generation failed: {str(e)}"
+            }
+
+    def _parse_bilingual_summary(self, summary_text: str) -> Dict[str, str]:
+        """解析AI返回的双语摘要文本，分离中英文部分"""
+        result = {
+            "chinese": "未能解析中文摘要",
+            "english": "Failed to parse English summary"
+        }
+
+        try:
+            lines = summary_text.split('\n')
+            chinese_lines = []
+            english_lines = []
+            current_section = None
+
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                if '中文摘要' in line or 'Chinese Summary' in line:
+                    current_section = 'chinese'
+                    continue
+                elif '英文摘要' in line or 'English Summary' in line:
+                    current_section = 'english'
+                    continue
+
+                if current_section == 'chinese':
+                    if self._is_mostly_chinese(line):
+                        chinese_lines.append(line)
+                elif current_section == 'english':
+                    if self._is_mostly_english(line):
+                        english_lines.append(line)
+
+            # 如果没有明确的章节标记，尝试智能分割
+            if not chinese_lines and not english_lines:
+                for line in lines:
+                    if self._is_mostly_chinese(line):
+                        chinese_lines.append(line)
+                    elif self._is_mostly_english(line):
+                        english_lines.append(line)
+
+            if chinese_lines:
+                result["chinese"] = " ".join(chinese_lines)
+            if english_lines:
+                result["english"] = " ".join(english_lines)
+
+        except Exception as e:
+            logger.error(f"解析双语摘要时出错: {e}")
+            result["chinese"] = summary_text
+            result["english"] = summary_text
+
+        return result
+
+    def _is_mostly_chinese(self, text: str) -> bool:
+        """判断文本是否主要是中文"""
+        chinese_chars = len([c for c in text if '\u4e00' <= c <= '\u9fff'])
+        return chinese_chars / max(len(text), 1) > 0.5
+
+    def _is_mostly_english(self, text: str) -> bool:
+        """判断文本是否主要是英文"""
+        english_chars = len([c for c in text if c.isalpha() or c.isspace() or c in ',.!?;:-'])
+        return english_chars / max(len(text), 1) > 0.7 and not self._is_mostly_chinese(text)
+
+    def fetch_techcrunch(self, max_articles: int = 15) -> List[Article]:
+        """获取TechCrunch头条"""
+        articles = []
+        logger.info("正在尝试从TechCrunch获取新闻...")
+
+        rss_urls = [
+            "https://techcrunch.com/feed/",
+            "http://feeds.feedburner.com/TechCrunch/",
+        ]
+
+        for rss_url in rss_urls:
+            try:
+                logger.info(f"尝试RSS源: {rss_url}")
+                response = requests.get(rss_url, timeout=10, verify=False)
+                response.raise_for_status()
+
+                feed = feedparser.parse(response.content)
+                if feed.entries:
+                    logger.info(f"TechCrunch: 成功获取到 {len(feed.entries)} 条新闻")
+
+                    for entry in feed.entries[:max_articles]:
+                        if self.is_tech_related(entry.title, entry.get('summary', '')):
+                            article = Article(
+                                title=entry.title,
+                                link=entry.link,
+                                source='TechCrunch',
+                                description=entry.get('summary', '')
+                            )
+                            articles.append(article)
+
+                            if len(articles) >= max_articles:
+                                break
+
+                    logger.info(f"TechCrunch: 过滤后保留 {len(articles)} 条科技新闻")
+                    break
+
+            except Exception as e:
+                logger.error(f"TechCrunch RSS源失败: {e}")
+
+        logger.info(f"TechCrunch处理完成，共 {len(articles)} 条科技新闻")
+        return articles
+
+    def fetch_wired(self, max_articles: int = 15) -> List[Article]:
+        """获取Wired头条"""
+        articles = []
+        logger.info("正在尝试从Wired获取新闻...")
+
+        url = "https://www.wired.com/feed/rss"
+        try:
+            response = requests.get(url, timeout=10, verify=False)
+            response.raise_for_status()
+
+            feed = feedparser.parse(response.content)
+            logger.info(f"Wired: 成功获取到 {len(feed.entries)} 条新闻")
+
+            for entry in feed.entries[:max_articles]:
+                if self.is_tech_related(entry.title, entry.get('summary', '')):
+                    article = Article(
+                        title=entry.title,
+                        link=entry.link,
+                        source='Wired',
+                        description=entry.get('summary', '')
+                    )
+                    articles.append(article)
+
+                    if len(articles) >= max_articles:
+                        break
+
+            logger.info(f"Wired: 过滤后保留 {len(articles)} 条科技新闻")
+
+        except Exception as e:
+            logger.error(f"获取Wired时出错: {e}")
+
+        logger.info(f"Wired处理完成，共 {len(articles)} 条科技新闻")
+        return articles
+
+    def fetch_36kr(self, max_articles: int = 15) -> List[Article]:
+        """获取36氪快讯头条"""
+        articles = []
+        logger.info("正在尝试从36氪获取新闻...")
+
+        # 首先尝试RSS源
+        rss_url = "https://36kr.com/feed"
+        try:
+            response = requests.get(rss_url, timeout=10, verify=False)
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            if feed.entries:
+                logger.info(f"36氪RSS: 成功获取到 {len(feed.entries)} 条新闻")
+
+                for entry in feed.entries[:max_articles]:
+                    if self.is_tech_related(entry.title, entry.get('summary', '')):
+                        article = Article(
+                            title=entry.title,
+                            link=entry.link,
+                            source='36Kr',
+                            description=entry.get('summary', '')
+                        )
+                        articles.append(article)
+
+                        if len(articles) >= max_articles:
+                            break
+
+                logger.info(f"36氪: 过滤后保留 {len(articles)} 条科技新闻")
+                return articles
+        except Exception as e:
+            logger.error(f"36氪RSS获取失败: {e}")
+
+        # 如果RSS失败，使用网页解析备用方案
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
+        urls = [
+            "https://36kr.com/newsflashes",
+            "https://36kr.com/"
+        ]
+
+        for url in urls:
+            try:
+                response = requests.get(url, headers=headers, timeout=10, verify=False)
+                response.raise_for_status()
+
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                # 查找新闻标题
+                titles = []
+                selectors = [
+                    '.newsflash-item .newsflash-item-title',
+                    '.newsflash-item .title',
+                    'a[href*="/newsflashes/"]'
+                ]
+
+                for selector in selectors:
+                    elements = soup.select(selector)
+                    if elements:
+                        for element in elements:
+                            title = element.get_text(strip=True)
+                            if title and len(title) > 5 and title not in titles and self.is_tech_related(title):
+                                titles.append(title)
+                                if len(titles) >= max_articles:
+                                    break
+                        if titles:
+                            break
+
+                for title in titles:
+                    article = Article(
+                        title=title,
+                        link=f"https://36kr.com/",
+                        source='36Kr'
+                    )
+                    articles.append(article)
+
+                if articles:
+                    break
+
+            except Exception as e:
+                logger.error(f"获取36氪失败 ({url}): {e}")
+
+        logger.info(f"36氪: 过滤后保留 {len(articles)} 条科技新闻")
+        return articles
+
+    def fetch_mit_tr(self, max_articles: int = 15) -> List[Article]:
+        """获取MIT Technology Review头条"""
+        articles = []
+        logger.info("正在尝试从MIT Technology Review获取新闻...")
+
+        # 尝试RSS源
+        rss_urls = [
+            "https://www.technologyreview.com/feed/",
+            "https://www.technologyreview.com/topics/rss/",
+            "https://www.technologyreview.com/stories.rss"
+        ]
+
+        for rss_url in rss_urls:
+            try:
+                logger.info(f"尝试MIT RSS源: {rss_url}")
+                response = requests.get(rss_url, timeout=10, verify=False)
+                response.raise_for_status()
+                feed = feedparser.parse(response.content)
+                if feed.entries:
+                    logger.info(f"MIT RSS: 成功获取到 {len(feed.entries)} 条新闻")
+
+                    for entry in feed.entries[:max_articles]:
+                        if self.is_tech_related(entry.title, entry.get('summary', '')):
+                            article = Article(
+                                title=entry.title,
+                                link=entry.link,
+                                source='MIT Technology Review',
+                                description=entry.get('summary', '')
+                            )
+                            articles.append(article)
+
+                            if len(articles) >= max_articles:
+                                break
+
+                    logger.info(f"MIT: 过滤后保留 {len(articles)} 条科技新闻")
+                    return articles
+            except Exception as e:
+                logger.error(f"MIT RSS源失败 ({rss_url}): {e}")
+
+        # 如果所有RSS都失败，使用网页解析
+        url = "https://www.technologyreview.com/"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        }
+
+        try:
+            response = requests.get(url, headers=headers, timeout=15, verify=False)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+            logger.info(f"MIT页面获取成功，开始解析...")
+
+            selectors = [
+                'h3 a',
+                '.headline a',
+                'article h2 a',
+                'a[href*="/article/"]',
+                'a[href*="/story/"]',
+            ]
+
+            seen_titles = set()
+            for selector in selectors:
+                elements = soup.select(selector)
+                if elements:
+                    for element in elements:
+                        href = element.get('href', '')
+                        title = element.get_text(strip=True)
+
+                        if (title and len(title) > 10 and
+                                title not in seen_titles and
+                                len(title) < 200 and
+                                self.is_tech_related(title)):
+
+                            seen_titles.add(title)
+                            full_url = href if href.startswith('http') else f"https://www.technologyreview.com{href}"
+
+                            article = Article(
+                                title=title[:100],
+                                link=full_url,
+                                source='MIT Technology Review'
+                            )
+                            articles.append(article)
+
+                            if len(articles) >= max_articles:
+                                break
+                    if articles:
+                        break
+
+            logger.info(f"MIT Technology Review: 过滤后保留 {len(articles)} 条科技新闻")
+
+        except Exception as e:
+            logger.error(f"获取MIT Technology Review时出错: {e}")
+
+        logger.info(f"MIT Technology Review处理完成，共 {len(articles)} 条科技新闻")
+        return articles
+
+    def _balance_articles_by_source(self, articles: List[Article], total_count: int) -> List[Article]:
+        """按来源平衡选择文章，确保来源多样性"""
+        # 按来源分组
+        source_groups = {}
+        for article in articles:
+            source = article.source
+            if source not in source_groups:
+                source_groups[source] = []
+            source_groups[source].append(article)
+
+        # 计算每个来源应该分配的数量
+        source_count = len(source_groups)
+        base_count = max(1, total_count // source_count)
+
+        balanced_articles = []
+
+        # 第一轮：每个来源分配基础数量
+        for source, source_articles in source_groups.items():
+            balanced_articles.extend(source_articles[:base_count])
+
+        # 第二轮：如果还有剩余名额，按来源文章数量比例分配
+        remaining_slots = total_count - len(balanced_articles)
+        if remaining_slots > 0:
+            sorted_sources = sorted(source_groups.items(),
+                                    key=lambda x: len(x[1]),
+                                    reverse=True)
+
+            for source, source_articles in sorted_sources:
+                if remaining_slots <= 0:
+                    break
+                already_selected = len([a for a in balanced_articles if a.source == source])
+                available = len(source_articles) - already_selected
+                if available > 0:
+                    balanced_articles.append(source_articles[already_selected])
+                    remaining_slots -= 1
+
+        return balanced_articles[:total_count]
+
+    def execute(self,
+                enable_ai_summary: bool = None,
+                total_articles: int = None,
+                articles_per_source: int = None,
+                sources: List[str] = None) -> Dict[str, Any]:
+        """
+        执行科技新闻获取任务
+
+        Args:
+            enable_ai_summary: 是否启用AI摘要
+            total_articles: 总文章数量
+            articles_per_source: 每个来源获取的文章数量
+            sources: 指定新闻来源
+
+        Returns:
+            Dict: 包含新闻数据和元信息的结构化结果
+        """
+        # 使用配置值或参数值
+        enable_ai_summary = enable_ai_summary if enable_ai_summary is not None else self.config.enable_ai_summary
+        total_articles = total_articles if total_articles is not None else self.config.total_articles
+        articles_per_source = articles_per_source if articles_per_source is not None else self.config.articles_per_source
+
+        # 默认使用所有来源
+        if sources is None:
+            sources = ['TechCrunch', 'Wired', '36Kr', 'MIT']
+
+        logger.info(f"开始执行科技新闻获取任务: enable_ai_summary={enable_ai_summary}, "
+                    f"total_articles={total_articles}, articles_per_source={articles_per_source}, "
+                    f"sources={sources}")
+
+        all_articles = []
+
+        # 从各来源获取文章
+        source_fetchers = {
+            'TechCrunch': self.fetch_techcrunch,
+            'Wired': self.fetch_wired,
+            '36Kr': self.fetch_36kr,
+            'MIT': self.fetch_mit_tr
+        }
+
+        source_results = {}
+        for source_name in sources:
+            if source_name in source_fetchers:
+                logger.info(f"正在从 {source_name} 获取新闻...")
+                try:
+                    articles = source_fetchers[source_name](articles_per_source)
+                    source_results[source_name] = articles
+                    all_articles.extend(articles)
+                    logger.info(f"✅ {source_name}: 成功获取 {len(articles)} 篇文章")
+                except Exception as e:
+                    logger.error(f"❌ {source_name}: 获取失败 - {e}")
+                    source_results[source_name] = []
+
+        # 统计各来源结果
+        source_stats = {source: len(articles) for source, articles in source_results.items()}
+        logger.info(f"各来源获取统计: {source_stats}")
+        logger.info(f"总计获取 {len(all_articles)} 篇文章，开始去重...")
+
+        # 基于标题去重
+        seen = set()
+        unique_articles = []
+        for article in all_articles:
+            identifier = hashlib.md5(f"{article.title}_{article.source}".encode()).hexdigest()
+            if identifier not in seen:
+                seen.add(identifier)
+                unique_articles.append(article)
+
+        logger.info(f"去重后剩余 {len(unique_articles)} 篇文章")
+
+        # 按来源平衡选择文章
+        balanced_articles = self._balance_articles_by_source(unique_articles, total_articles)
+        logger.info(f"平衡选择后得到 {len(balanced_articles)} 篇文章")
+
+        # 如果需要AI摘要，则处理每篇文章
+        final_articles = []
+        if enable_ai_summary and self.doubao_client:
+            logger.info("正在使用AI生成双语新闻摘要...")
+            for i, article in enumerate(balanced_articles, 1):
+                logger.info(f"处理进度: {i}/{len(balanced_articles)} - {article.source}: {article.title[:50]}...")
+
+                # 提取文章内容
+                content = self.extract_article_content(article.link)
+                article.content = content
+
+                # 生成双语AI摘要
+                bilingual_summary = self.generate_bilingual_summary(article.title, content)
+                article.bilingual_summary = bilingual_summary
+
+                # 提取关键词
+                article.keywords = [kw for kw in self.tech_keywords if kw.lower() in article.title.lower()]
+
+                final_articles.append(article)
+
+                # 添加延迟以避免请求过快
+                time.sleep(self.config.delay_between_requests)
+        else:
+            final_articles = balanced_articles
+
+        # 构建返回结果
+        # result = {
+        #     "success": True,
+        #     "data": {
+        #         "articles": [
+        #             {
+        #                 "title": article.title,
+        #                 "link": article.link,
+        #                 "source": article.source,
+        #                 "description": article.description,
+        #                 "bilingual_summary": article.bilingual_summary,
+        #                 "keywords": article.keywords
+        #             }
+        #             for article in final_articles
+        #         ],
+        #         "summary": {
+        #             "total_articles": len(final_articles),
+        #             "source_distribution": source_stats,
+        #             "has_ai_summary": enable_ai_summary and self.doubao_client is not None
+        #         }
+        #     },
+        #     "metadata": {
+        #         "execution_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        #         "tool_name": self.name,
+        #         "parameters": {
+        #             "enable_ai_summary": enable_ai_summary,
+        #             "total_articles": total_articles,
+        #             "articles_per_source": articles_per_source,
+        #             "sources": sources
+        #         }
+        #     }
+        # }
+
+        logger.info(f"科技新闻获取任务完成，共获取 {len(final_articles)} 篇文章")
+        # return result
+        return final_articles
+
+    def get_tool_schema(self) -> Dict[str, Any]:
+        """
+        获取工具的模式定义，用于LLM工具调用
+
+        Returns:
+            Dict: 工具的模式定义
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "enable_ai_summary": {
+                        "type": "boolean",
+                        "description": "是否启用AI摘要生成",
+                        "default": True
+                    },
+                    "total_articles": {
+                        "type": "integer",
+                        "description": "需要获取的文章总数",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 20
+                    },
+                    "articles_per_source": {
+                        "type": "integer",
+                        "description": "每个来源获取的文章数量",
+                        "default": 8,
+                        "minimum": 1,
+                        "maximum": 15
+                    },
+                    "sources": {
+                        "type": "array",
+                        "description": "指定新闻来源",
+                        "items": {
+                            "type": "string",
+                            "enum": ["TechCrunch", "Wired", "36Kr", "MIT"]
+                        },
+                        "default": ["TechCrunch", "Wired", "36Kr", "MIT"]
+                    }
+                },
+                "required": []
+            }
+        }
 
 if __name__ == '__main__':
     # 测试所有功能
