@@ -208,7 +208,7 @@ async def sync_llm_processing(conversation_id, user_input, at_user_ids):
 
             if isinstance(result, dict) and result.get("type") == "news_report" and result.get("success"):
                 # 处理股票分析PDF结果
-                news_reports = result.get("news_report")
+                news_reports = result.get("pdf_binary")
 
                 # 指定北京时区（Asia/Shanghai）
                 beijing_tz = pytz.timezone("Asia/Shanghai")
