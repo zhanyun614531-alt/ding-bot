@@ -352,14 +352,27 @@ async def home():
 
 @app.get("/health")
 async def health():
-    """健康检查端点"""
+    """健康检查端点（包含公网IP查询）"""
+    # 异步获取公网IP
+    public_ip = "获取失败"
+    try:
+        # 使用异步HTTP客户端调用IP查询接口
+        async with httpx.AsyncClient() as client:
+            response = await client.get("https://api.ipify.org", timeout=10)
+            if response.status_code == 200:
+                public_ip = response.text.strip()  # 提取纯IP字符串
+    except Exception as e:
+        public_ip = f"获取失败: {str(e)}"  # 捕获异常并记录原因
+
+    # 构造健康检查响应（包含IP信息）
     health_status = {
         "status": "healthy",
         "service": "dingtalk-bot",
         "timestamp": time.time(),
         "active_tasks": len(processing_tasks),
         "environment": "production",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "public_ip": public_ip  # 新增：当前服务的公网出口IP
     }
     return JSONResponse(health_status)
 
