@@ -2490,39 +2490,6 @@ class TechNewsTool:
         else:
             final_articles = balanced_articles
 
-        # 构建返回结果
-        # result = {
-        #     "success": True,
-        #     "data": {
-        #         "articles": [
-        #             {
-        #                 "title": article.title,
-        #                 "link": article.link,
-        #                 "source": article.source,
-        #                 "description": article.description,
-        #                 "bilingual_summary": article.bilingual_summary,
-        #                 "keywords": article.keywords
-        #             }
-        #             for article in final_articles
-        #         ],
-        #         "summary": {
-        #             "total_articles": len(final_articles),
-        #             "source_distribution": source_stats,
-        #             "has_ai_summary": enable_ai_summary and self.doubao_client is not None
-        #         }
-        #     },
-        #     "metadata": {
-        #         "execution_time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        #         "tool_name": self.name,
-        #         "parameters": {
-        #             "enable_ai_summary": enable_ai_summary,
-        #             "total_articles": total_articles,
-        #             "articles_per_source": articles_per_source,
-        #             "sources": sources
-        #         }
-        #     }
-        # }
-
         logger.info(f"科技新闻获取任务完成，共获取 {len(final_articles)} 篇文章")
         # return result
         return final_articles
