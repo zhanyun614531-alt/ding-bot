@@ -24,6 +24,14 @@ import asyncio
 import traceback
 import os
 from dotenv import load_dotenv
+import io
+import datetime
+from typing import List, Dict, Any
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1583,12 +1591,12 @@ AI：```json
                     }
             elif action == "generate_tech_news_report":
                 # 返回科技新闻汇总结果
-                result = self.tech_news_agent.execute()
-                if result:
+                pdf_binary = self.tech_news_agent.execute()
+                if pdf_binary:
                     return {
                         "success": True,
                         "message": f"✅ 科技新闻汇总生成成功",
-                        "news_report": result
+                        "news_report": pdf_binary
                     }
             elif action == "send_email":
                 return self.send_email(
@@ -2392,13 +2400,28 @@ class TechNewsTool:
 
         return balanced_articles[:total_count]
 
+    import io
+    import datetime
+    import hashlib
+    import time
+    from typing import List, Dict, Any
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, \
+        PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    # 假设Article类已定义，包含title、source、link等属性
+    # from your_module import Article  # 根据实际情况导入
+
     def execute(self,
                 enable_ai_summary: bool = None,
                 total_articles: int = None,
                 articles_per_source: int = None,
-                sources: List[str] = None) -> Dict[str, Any]:
+                sources: List[str] = None) -> bytes:  # 返回类型改为bytes
         """
-        执行科技新闻获取任务
+        执行科技新闻获取任务，返回二进制PDF数据
 
         Args:
             enable_ai_summary: 是否启用AI摘要
@@ -2407,7 +2430,7 @@ class TechNewsTool:
             sources: 指定新闻来源
 
         Returns:
-            Dict: 包含新闻数据和元信息的结构化结果
+            bytes: 二进制PDF数据，可直接上传云端
         """
         # 使用配置值或参数值
         enable_ai_summary = enable_ai_summary if enable_ai_summary is not None else self.config.enable_ai_summary
@@ -2418,13 +2441,14 @@ class TechNewsTool:
         if sources is None:
             sources = ['TechCrunch', 'Wired', '36Kr', 'MIT']
 
-        logger.info(f"开始执行科技新闻获取任务: enable_ai_summary={enable_ai_summary}, "
-                    f"total_articles={total_articles}, articles_per_source={articles_per_source}, "
-                    f"sources={sources}")
+        logger.info(
+            f"开始执行科技新闻获取任务: enable_ai_summary={enable_ai_summary}, "
+            f"total_articles={total_articles}, articles_per_source={articles_per_source}, "
+            f"sources={sources}")
 
         all_articles = []
 
-        # 从各来源获取文章
+        # 从各来源获取文章（与原逻辑一致）
         source_fetchers = {
             'TechCrunch': self.fetch_techcrunch,
             'Wired': self.fetch_wired,
@@ -2437,51 +2461,59 @@ class TechNewsTool:
             if source_name in source_fetchers:
                 logger.info(f"正在从 {source_name} 获取新闻...")
                 try:
-                    articles = source_fetchers[source_name](articles_per_source)
+                    articles = source_fetchers[source_name](
+                        articles_per_source)
                     source_results[source_name] = articles
                     all_articles.extend(articles)
-                    logger.info(f"✅ {source_name}: 成功获取 {len(articles)} 篇文章")
+                    logger.info(
+                        f"✅ {source_name}: 成功获取 {len(articles)} 篇文章")
                 except Exception as e:
                     logger.error(f"❌ {source_name}: 获取失败 - {e}")
                     source_results[source_name] = []
 
-        # 统计各来源结果
-        source_stats = {source: len(articles) for source, articles in source_results.items()}
+        # 统计各来源结果（与原逻辑一致）
+        source_stats = {source: len(articles) for source, articles in
+                        source_results.items()}
         logger.info(f"各来源获取统计: {source_stats}")
         logger.info(f"总计获取 {len(all_articles)} 篇文章，开始去重...")
 
-        # 基于标题去重
+        # 基于标题去重（与原逻辑一致）
         seen = set()
         unique_articles = []
         for article in all_articles:
-            identifier = hashlib.md5(f"{article.title}_{article.source}".encode()).hexdigest()
+            identifier = hashlib.md5(
+                f"{article.title}_{article.source}".encode()).hexdigest()
             if identifier not in seen:
                 seen.add(identifier)
                 unique_articles.append(article)
 
         logger.info(f"去重后剩余 {len(unique_articles)} 篇文章")
 
-        # 按来源平衡选择文章
-        balanced_articles = self._balance_articles_by_source(unique_articles, total_articles)
+        # 按来源平衡选择文章（与原逻辑一致）
+        balanced_articles = self._balance_articles_by_source(unique_articles,
+                                                             total_articles)
         logger.info(f"平衡选择后得到 {len(balanced_articles)} 篇文章")
 
-        # 如果需要AI摘要，则处理每篇文章
+        # 处理AI摘要（与原逻辑一致）
         final_articles = []
         if enable_ai_summary and self.doubao_client:
             logger.info("正在使用AI生成双语新闻摘要...")
             for i, article in enumerate(balanced_articles, 1):
-                logger.info(f"处理进度: {i}/{len(balanced_articles)} - {article.source}: {article.title[:50]}...")
+                logger.info(
+                    f"处理进度: {i}/{len(balanced_articles)} - {article.source}: {article.title[:50]}...")
 
                 # 提取文章内容
                 content = self.extract_article_content(article.link)
                 article.content = content
 
                 # 生成双语AI摘要
-                bilingual_summary = self.generate_bilingual_summary(article.title, content)
+                bilingual_summary = self.generate_bilingual_summary(
+                    article.title, content)
                 article.bilingual_summary = bilingual_summary
 
                 # 提取关键词
-                article.keywords = [kw for kw in self.tech_keywords if kw.lower() in article.title.lower()]
+                article.keywords = [kw for kw in self.tech_keywords if
+                                    kw.lower() in article.title.lower()]
 
                 final_articles.append(article)
 
@@ -2490,9 +2522,135 @@ class TechNewsTool:
         else:
             final_articles = balanced_articles
 
-        logger.info(f"科技新闻获取任务完成，共获取 {len(final_articles)} 篇文章")
-        # return result
-        return final_articles
+        logger.info(
+            f"科技新闻处理完成，共 {len(final_articles)} 篇文章，开始生成PDF...")
+
+        # --------------------------
+        # 核心修改：生成PDF二进制数据
+        # --------------------------
+
+        # 1. 注册中文字体（解决中文显示问题）
+        try:
+            # 可替换为系统中实际存在的中文字体路径（如SimHei、Microsoft YaHei等）
+            pdfmetrics.registerFont(TTFont('SimSun', 'SimSun.ttf'))  # 宋体
+            pdfmetrics.registerFont(TTFont('SimHei', 'SimHei.ttf'))  # 黑体
+        except Exception as e:
+            logger.warning(f"中文字体注册失败，可能导致中文显示异常: {e}")
+
+        # 2. 创建内存缓冲区（用于存储PDF二进制数据）
+        pdf_buffer = io.BytesIO()
+
+        # 3. 配置PDF文档基本属性
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=letter,
+            topMargin=40,
+            bottomMargin=40,
+            leftMargin=40,
+            rightMargin=40,
+            title="科技新闻汇总报告"
+        )
+
+        # 4. 定义PDF样式（标题、正文等格式）
+        styles = getSampleStyleSheet()
+
+        # 标题样式（大标题）
+        title_style = styles['Title']
+        title_style.fontName = 'SimHei' if 'SimHei' in pdfmetrics.getRegisteredFontNames() else 'Helvetica'
+        title_style.fontSize = 20
+        title_style.spaceAfter = 20
+
+        # 章节标题样式（文章标题）
+        heading_style = styles['Heading1']
+        heading_style.fontName = 'SimHei' if 'SimHei' in pdfmetrics.getRegisteredFontNames() else 'Helvetica'
+        heading_style.fontSize = 16
+        heading_style.spaceAfter = 12
+
+        # 小标题样式（来源、链接等）
+        subheading_style = styles['Heading2']
+        subheading_style.fontName = 'SimHei' if 'SimHei' in pdfmetrics.getRegisteredFontNames() else 'Helvetica'
+        subheading_style.fontSize = 12
+        subheading_style.spaceAfter = 6
+
+        # 正文样式
+        body_style = styles['BodyText']
+        body_style.fontName = 'SimSun' if 'SimSun' in pdfmetrics.getRegisteredFontNames() else 'Helvetica'
+        body_style.fontSize = 10
+        body_style.spaceAfter = 6
+        body_style.wordWrap = 'CJK'  # 支持中文换行
+
+        # 5. 构建PDF内容（故事流）
+        story = []
+
+        # 添加封面
+        story.append(Paragraph("科技新闻汇总报告", title_style))
+        story.append(Spacer(1, 30))
+        story.append(Paragraph(
+            f"生成时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            body_style))
+        story.append(Paragraph(f"文章总数: {len(final_articles)}", body_style))
+        story.append(Paragraph(f"来源: {', '.join(sources)}", body_style))
+        story.append(PageBreak())  # 封面后分页
+
+        # 遍历文章，添加到PDF
+        for idx, article in enumerate(final_articles, 1):
+            # 文章标题
+            story.append(
+                Paragraph(f"文章 {idx}: {article.title}", heading_style))
+            story.append(Spacer(1, 10))
+
+            # 来源信息
+            story.append(
+                Paragraph(f"来源: {article.source}", subheading_style))
+
+            # 原文链接
+            story.append(Paragraph(f"链接: {article.link}", body_style))
+            story.append(Spacer(1, 8))
+
+            # 关键词（如有）
+            if hasattr(article, 'keywords') and article.keywords:
+                story.append(
+                    Paragraph(f"关键词: {', '.join(article.keywords)}",
+                              subheading_style))
+                story.append(Spacer(1, 6))
+
+            # AI双语摘要（如有）
+            if hasattr(article,
+                       'bilingual_summary') and article.bilingual_summary:
+                story.append(Paragraph("AI摘要（中文）:", subheading_style))
+                story.append(Paragraph(
+                    article.bilingual_summary.get('zh', '无中文摘要'),
+                    body_style))
+                story.append(Spacer(1, 6))
+
+                story.append(Paragraph("AI摘要（英文）:", subheading_style))
+                story.append(Paragraph(
+                    article.bilingual_summary.get('en', 'No English summary'),
+                    body_style))
+                story.append(Spacer(1, 12))
+
+            # 文章内容（如有）
+            if hasattr(article, 'content') and article.content:
+                story.append(Paragraph("文章内容:", subheading_style))
+                # 长文本分段处理（避免单段过长）
+                content_chunks = [article.content[i:i + 500] for i in
+                                  range(0, len(article.content), 500)]
+                for chunk in content_chunks:
+                    story.append(Paragraph(chunk.strip(), body_style))
+                story.append(Spacer(1, 15))
+
+            # 文章间分页
+            story.append(PageBreak())
+
+        # 6. 生成PDF并写入缓冲区
+        doc.build(story)
+
+        # 7. 从缓冲区获取二进制数据
+        pdf_binary = pdf_buffer.getvalue()
+        pdf_buffer.close()  # 释放缓冲区
+
+        logger.info(f"PDF生成成功，大小: {len(pdf_binary)} 字节")
+        return pdf_binary
 
     def get_tool_schema(self) -> Dict[str, Any]:
         """
