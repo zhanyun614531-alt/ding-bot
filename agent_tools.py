@@ -1596,7 +1596,7 @@ AI：```json
                     return {
                         "success": True,
                         "message": f"✅ 科技新闻汇总生成成功",
-                        "news_report": pdf_binary
+                        "pdf_binary": pdf_binary
                     }
             elif action == "send_email":
                 return self.send_email(
@@ -1690,6 +1690,7 @@ AI：```json
                             tech_news_report_result = {
                                 "type": "news_report",
                                 "success": True,
+                                "pdf_binary": tool_result.get("pdf_binary"),
                                 "message": tool_result.get("message")
                             }
                             results.append(tech_news_report_result["message"])
