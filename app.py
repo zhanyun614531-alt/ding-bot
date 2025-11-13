@@ -22,6 +22,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import uuid
 from datetime import datetime, timedelta
+import httpx
 
 # 加载环境变量
 load_dotenv()
