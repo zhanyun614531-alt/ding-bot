@@ -1,7 +1,7 @@
-# 11/13 16:52
+# 11/13
 
+# 10/12 06:35
 from dotenv import load_dotenv
-import pytz
 from fastapi import FastAPI, Request, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
 from qiniu import Auth, put_data, etag
@@ -127,11 +127,10 @@ async def upload_stock_file_to_Qiniu(pdf_binary: bytes, stock_name: str, at_user
         print(f"上传过程中发生错误：{str(e)}")
         return None
 
-async def upload_news_report_to_Qiniu(news_report, at_user_ids=None):
+async def upload_news_report_to_Qiniu(pdf_binary: bytes, at_user_ids=None):
     """
     上传PDF二进制数据到七牛云
     :param pdf_binary_data: PDF文件的二进制数据
-    :param stock_name: 股票名称
     :return: 上传成功返回文件的公开访问URL，失败返回None
     """
     # 初始化七牛云上传器
@@ -142,16 +141,16 @@ async def upload_news_report_to_Qiniu(news_report, at_user_ids=None):
     q = Auth(access_key, secret_key)
     try:
         # 检查二进制数据是否为空
-        if not news_report:
+        if not pdf_binary:
             print("错误：PDF二进制数据为空")
             return None
 
         timestamp = datetime.now().strftime("%Y%m%d")
-        remote_file_name = f"Technical_News_Report_{timestamp}.pdf"
+        remote_file_name = f"Tech_News_Report_{timestamp}.pdf"
 
         # 简单验证PDF文件头（可选，但推荐）
         pdf_header = b'%PDF-'
-        if not news_report.startswith(pdf_header):
+        if not pdf_binary.startswith(pdf_header):
             print("警告：提供的二进制数据可能不是有效的PDF文件")
 
         # 生成上传Token
@@ -159,7 +158,7 @@ async def upload_news_report_to_Qiniu(news_report, at_user_ids=None):
                                     3600)
 
         # 执行上传（使用put_data上传二进制数据）
-        ret, info = put_data(token, remote_file_name, news_report)
+        ret, info = put_data(token, remote_file_name, pdf_binary)
 
         # 检查上传结果
         if ret is not None and ret['key'] == remote_file_name:
@@ -201,29 +200,25 @@ async def sync_llm_processing(conversation_id, user_input, at_user_ids):
                     # 先发送提示消息
                     await send_official_message("咨询: 📈 正在生成股票分析报告PDF，请稍候...", at_user_ids=at_user_ids)
                     # 发送PDF文件
+                    # await send_pdf_via_dingtalk(pdf_binary, stock_name, at_user_ids)
                     await upload_stock_file_to_Qiniu(pdf_binary, stock_name, at_user_ids)
                 else:
                     error_msg = "咨询：❌ PDF二进制数据为空"
                     await send_official_message(error_msg, at_user_ids=at_user_ids)
 
-            if isinstance(result, dict) and result.get("type") == "news_report" and result.get("success"):
-                # 处理股票分析PDF结果
-                news_reports = result.get("pdf_binary")
+            elif isinstance(result, dict) and result.get("type") == "news_pdf" and result.get("success"):
+                # 处理科技新闻PDF结果
+                pdf_binary = result.get("pdf_binary")
+                message = result.get("message", "科技新闻报告生成完成")
 
-                # 指定北京时区（Asia/Shanghai）
-                beijing_tz = pytz.timezone("Asia/Shanghai")
-                beijing_time = datetime.now(beijing_tz)  # 获取北京时区的当前时间
-                # report_name = f"News_report_{beijing_time.strftime('%Y%m%d')}"
-
-                message = result.get("message", "f✅ 科技新闻汇总生成成功")
-
-                if news_reports:
+                if pdf_binary:
                     # 先发送提示消息
-                    await send_official_message("咨询: 📈 正在生成科技新闻汇总，请稍候...", at_user_ids=at_user_ids)
+                    await send_official_message("咨询: 📈 正在生成科技新闻报告PDF，请稍候...", at_user_ids=at_user_ids)
                     # 发送PDF文件
-                    await upload_news_report_to_Qiniu(news_reports, at_user_ids)
+                    # await send_pdf_via_dingtalk(pdf_binary, stock_name, at_user_ids)
+                    await upload_stock_file_to_Qiniu(pdf_binary, at_user_ids)
                 else:
-                    error_msg = "咨询：❌ News report为空"
+                    error_msg = "咨询：❌ PDF二进制数据为空"
                     await send_official_message(error_msg, at_user_ids=at_user_ids)
 
             elif isinstance(result, dict) and result.get("type") == "text":
@@ -350,18 +345,39 @@ async def home():
     return "钉钉机器人服务运行中 ✅"
 
 
+# # @app.get("/health")
+# async def health():
+#     """健康检查端点"""
+#     health_status = {
+#         "status": "healthy",
+#         "service": "dingtalk-bot",
+#         "timestamp": time.time(),
+#         "active_tasks": len(processing_tasks),
+#         "environment": "production",
+#         "version": "1.0.0"
+#     }
+#     return JSONResponse(health_status)
+
 @app.get("/health")
-async def health():
-    """健康检查端点"""
-    health_status = {
-        "status": "healthy",
-        "service": "dingtalk-bot",
-        "timestamp": time.time(),
-        "active_tasks": len(processing_tasks),
-        "environment": "production",
-        "version": "1.0.0"
-    }
-    return JSONResponse(health_status)
+@app.head("/health")  # 同时支持HEAD方法
+async def health_check(request: Request):
+    """
+    健康检查端点，支持GET和HEAD方法
+    """
+    if request.method == "HEAD":
+        # HEAD请求只返回头部，不返回body
+        return "OK", 200
+    else:
+        # GET请求返回完整状态信息
+        health_status = {
+                "status": "healthy",
+                "service": "dingtalk-bot",
+                "timestamp": time.time(),
+                "active_tasks": len(processing_tasks),
+                "environment": "production",
+                "version": "1.0.0"
+            }
+        return JSONResponse(health_status)
 
 
 @app.api_route("/dingtalk/webhook", methods=["GET", "POST"])
