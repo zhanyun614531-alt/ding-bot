@@ -229,6 +229,7 @@ class AsyncTechNewsTool:
     async def _make_request(self, url: str, method: str = "GET", headers: Dict = None, data: Any = None) -> str:
         """异步HTTP请求"""
         if not self.session:
+            logger.error(f"Session未初始化，无法请求 {url}")
             raise RuntimeError("Session not initialized. Use async context manager.")
 
         try:
@@ -238,9 +239,12 @@ class AsyncTechNewsTool:
             if headers:
                 request_headers.update(headers)
 
+            logger.info(f"正在请求: {url}")
             async with self.session.request(method, url, headers=request_headers, data=data, ssl=False) as response:
                 response.raise_for_status()
-                return await response.text()
+                content = await response.text()
+                logger.info(f"请求成功: {url}, 状态码: {response.status}")
+                return content
 
         except Exception as e:
             logger.error(f"HTTP请求失败 {url}: {e}")
@@ -266,6 +270,21 @@ class AsyncTechNewsTool:
         """异步从文章URL提取核心内容"""
         try:
             content = await self._make_request(url)
+
+            # 如果返回403错误，尝试使用不同的User-Agent
+            if "403" in content or "Forbidden" in content:
+                logger.warning(f"网站返回403错误，尝试使用备用方法: {url}")
+                # 尝试使用不同的headers
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                }
+                content = await self._make_request(url, headers=headers)
 
             soup = BeautifulSoup(content, 'html.parser')
 
@@ -680,6 +699,10 @@ class AsyncTechNewsTool:
 
     def _balance_articles_by_source(self, articles: List[Article], total_count: int) -> List[Article]:
         """按来源平衡选择文章，确保来源多样性"""
+        # 如果文章列表为空，直接返回空列表
+        if not articles:
+            return []
+
         # 按来源分组
         source_groups = {}
         for article in articles:
@@ -690,6 +713,11 @@ class AsyncTechNewsTool:
 
         # 计算每个来源应该分配的数量
         source_count = len(source_groups)
+
+        # 修复：防止除零错误
+        if source_count == 0:
+            return articles[:total_count]  # 如果没有来源分组，直接返回前total_count篇文章
+
         base_count = max(1, total_count // source_count)
 
         balanced_articles = []
@@ -759,7 +787,8 @@ class AsyncTechNewsTool:
                 textColor=colors.darkblue,
                 spaceAfter=30,
                 alignment=TA_CENTER,
-                wordWrap='CJK'  # 特别针对CJK文字换行
+                wordWrap='CJK',  # 特别针对CJK文字换行
+                leading=22  # 设置行距
             ))
 
         if f"{style_prefix}Subtitle" not in styles:
@@ -771,20 +800,40 @@ class AsyncTechNewsTool:
                 textColor=colors.darkblue,
                 spaceAfter=20,
                 alignment=TA_CENTER,
-                wordWrap='CJK'
+                wordWrap='CJK',
+                leading=18
             ))
 
-        # 文章标题 - 使用中文字体
+        # 文章标题 - 智能字体选择
         if f"{style_prefix}ArticleTitle" not in styles:
             styles.add(ParagraphStyle(
                 name=f"{style_prefix}ArticleTitle",
                 parent=styles['Heading3'],
-                fontName=chinese_font,
+                fontName=chinese_font,  # 默认使用中文字体
                 fontSize=12,
                 textColor=colors.darkblue,
                 spaceAfter=6,
                 alignment=TA_LEFT,
-                wordWrap='CJK'
+                wordWrap='CJK',
+                leading=15,
+                splitLongWords=True,  # 允许拆分长单词
+                spaceShrinkage=0.0,  # 禁用字间距调整
+            ))
+
+        # 英文文章标题 - 专门为英文标题设计
+        if f"{style_prefix}EnglishArticleTitle" not in styles:
+            styles.add(ParagraphStyle(
+                name=f"{style_prefix}EnglishArticleTitle",
+                parent=styles['Heading3'],
+                fontName=english_font,  # 使用英文字体
+                fontSize=12,
+                textColor=colors.darkblue,
+                spaceAfter=6,
+                alignment=TA_LEFT,
+                wordWrap=None,  # 英文不使用CJK换行
+                leading=15,
+                splitLongWords=True,
+                spaceShrinkage=0.0,
             ))
 
         # 来源信息 - 使用中文字体
@@ -797,7 +846,8 @@ class AsyncTechNewsTool:
                 textColor=colors.gray,
                 spaceAfter=6,
                 alignment=TA_LEFT,
-                wordWrap='CJK'
+                wordWrap='CJK',
+                leading=12
             ))
 
         # 链接 - 使用英文字体（等宽字体）
@@ -810,7 +860,8 @@ class AsyncTechNewsTool:
                 textColor=colors.blue,
                 spaceAfter=12,
                 alignment=TA_LEFT,
-                wordWrap=None  # 英文不使用CJK换行
+                wordWrap=None,  # 英文不使用CJK换行
+                leading=11
             ))
 
         # 摘要标题 - 使用中文字体
@@ -823,7 +874,8 @@ class AsyncTechNewsTool:
                 textColor=colors.darkgreen,
                 spaceAfter=6,
                 alignment=TA_LEFT,
-                wordWrap='CJK'
+                wordWrap='CJK',
+                leading=12
             ))
 
         # 摘要文本 - 根据内容智能选择字体
@@ -836,7 +888,8 @@ class AsyncTechNewsTool:
                 textColor=colors.black,
                 spaceAfter=12,
                 alignment=TA_JUSTIFY,
-                wordWrap='CJK'
+                wordWrap='CJK',
+                leading=11
             ))
 
         # 英文摘要文本 - 专门为英文内容设计
@@ -852,7 +905,7 @@ class AsyncTechNewsTool:
                 wordWrap=None,  # 英文不使用CJK换行
                 leading=11,  # 设置行距
                 splitLongWords=False,  # 不拆分长单词
-                spaceShrinkage=0.05  # 允许轻微的字间距调整
+                spaceShrinkage=0.0  # 禁用字间距调整
             ))
 
         # 保存到类变量
@@ -912,8 +965,15 @@ class AsyncTechNewsTool:
 
             # 添加每篇文章
             for i, article in enumerate(articles, 1):
+                # 智能选择标题样式
+                # 如果标题主要是英文，使用英文字体样式
+                if self._is_mostly_english(article.title):
+                    title_style = styles[f"{style_prefix}EnglishArticleTitle"]
+                else:
+                    title_style = styles[f"{style_prefix}ArticleTitle"]
+
                 # 文章标题
-                article_title = Paragraph(f"{i}. {article.title}", styles[f"{style_prefix}ArticleTitle"])
+                article_title = Paragraph(f"{i}. {article.title}", title_style)
                 content.append(article_title)
 
                 # 来源
@@ -1014,24 +1074,23 @@ class AsyncTechNewsTool:
         }
 
         source_results = {}
-        # 并发执行所有来源的获取任务
-        fetch_tasks = []
+
+        # 顺序执行所有来源的获取任务
         for source_name in sources:
             if source_name in source_fetchers:
                 logger.info(f"正在从 {source_name} 获取新闻...")
-                task = asyncio.create_task(source_fetchers[source_name](articles_per_source))
-                fetch_tasks.append((source_name, task))
+                try:
+                    articles = await source_fetchers[source_name](articles_per_source)
+                    source_results[source_name] = articles
+                    all_articles.extend(articles)
+                    logger.info(f"✅ {source_name}: 成功获取 {len(articles)} 篇文章")
 
-        # 等待所有任务完成
-        for source_name, task in fetch_tasks:
-            try:
-                articles = await task
-                source_results[source_name] = articles
-                all_articles.extend(articles)
-                logger.info(f"✅ {source_name}: 成功获取 {len(articles)} 篇文章")
-            except Exception as e:
-                logger.error(f"❌ {source_name}: 获取失败 - {e}")
-                source_results[source_name] = []
+                    # 添加延迟避免请求过于频繁
+                    await asyncio.sleep(1.0)
+
+                except Exception as e:
+                    logger.error(f"❌ {source_name}: 获取失败 - {e}")
+                    source_results[source_name] = []
 
         # 统计各来源结果
         source_stats = {source: len(articles) for source, articles in source_results.items()}
@@ -1103,12 +1162,14 @@ class AsyncTechNewsTool:
             }
 
             logger.info(f"科技新闻获取任务完成，共获取 {len(final_articles)} 篇文章，生成PDF大小: {len(pdf_data)} 字节")
-            # return True, pdf_data, metadata
+
+            # 关键修复：确保返回的是三个值的元组
+            # return (True, pdf_data, metadata)
             return pdf_data
 
         except Exception as e:
             logger.error(f"任务执行失败: {e}")
-            return False, b"", {"error": str(e)}
+            return (False, b"", {"error": str(e)})
 
     async def _process_article(self, article: Article) -> Article:
         """异步处理单篇文章（内容提取和AI摘要）"""
@@ -1196,7 +1257,7 @@ class AsyncTechNewsTool:
 async def generate_tech_news_pdf(
         enable_ai_summary: bool = True,
         total_articles: int = 10,
-        articles_per_source: int = 20,
+        articles_per_source: int = 8,
         sources: List[str] = None
 ) -> Tuple[bool, bytes, Dict[str, Any]]:
     """
@@ -1211,52 +1272,91 @@ async def generate_tech_news_pdf(
     Returns:
         Tuple[bool, bytes, Dict]: 成功状态, PDF二进制数据, 元数据
     """
-    # 创建配置
-    config = TechNewsToolConfig(
-        doubao_api_key=os.environ.get("ARK_API_KEY"),
-        doubao_base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
-        enable_ai_summary=enable_ai_summary,
-        total_articles=total_articles,
-        articles_per_source=articles_per_source,
-        request_timeout=30,  # Render平台上增加超时时间
-        delay_between_requests=1.0  # 减少延迟以避免超时
-    )
-
-    # 使用异步上下文管理器
-    async with AsyncTechNewsTool(config) as tech_news_tool:
-        return await tech_news_tool.execute(
+    try:
+        # 创建配置
+        config = TechNewsToolConfig(
+            doubao_api_key=os.environ.get("ARK_API_KEY"),
+            doubao_base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
             enable_ai_summary=enable_ai_summary,
             total_articles=total_articles,
             articles_per_source=articles_per_source,
-            sources=sources
+            request_timeout=30,  # Render平台上增加超时时间
+            delay_between_requests=1.0  # 减少延迟以避免超时
         )
 
+        # 使用异步上下文管理器
+        async with AsyncTechNewsTool(config) as tech_news_tool:
+            result = await tech_news_tool.execute(
+                enable_ai_summary=enable_ai_summary,
+                total_articles=total_articles,
+                articles_per_source=articles_per_source,
+                sources=sources
+            )
+
+            # 确保只返回三个值
+            if len(result) == 3:
+                return result
+            else:
+                # 如果返回了更多值，只取前三个
+                logger.warning(f"execute方法返回了{len(result)}个值，但预期是3个")
+                return result[0], result[1], result[2] if len(result) > 2 else {}
+
+    except Exception as e:
+        logger.error(f"生成PDF过程中发生错误: {e}")
+        return False, b"", {"error": str(e)}
 
 # 异步使用示例
 async def main():
     """异步主函数示例"""
-    success, pdf_data, metadata = await generate_tech_news_pdf(
-        enable_ai_summary=True,
-        total_articles=5,
-        articles_per_source=4,
-        sources=['TechCrunch', 'Wired']
-    )
+    try:
+        # 直接调用AsyncTechNewsTool
+        config = TechNewsToolConfig(
+            doubao_api_key=os.environ.get("ARK_API_KEY"),
+            doubao_base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
+            enable_ai_summary=True,
+            total_articles=5,
+            articles_per_source=4,
+            request_timeout=30
+        )
 
-    if success:
-        print(f"任务执行成功!")
-        print(f"PDF大小: {len(pdf_data)} 字节")
-        print(f"元数据: {json.dumps(metadata, indent=2, ensure_ascii=False)}")
+        async with AsyncTechNewsTool(config) as tech_news_tool:
+            # 先获取结果，不立即解包
+            result = await tech_news_tool.execute(
+                enable_ai_summary=True,
+                total_articles=5,
+                articles_per_source=4,
+                sources=['TechCrunch', 'Wired']
+            )
 
-        # 保存PDF到文件（用于测试）
-        with open("tech_news_report.pdf", "wb") as f:
-            f.write(pdf_data)
-        print("PDF已保存为 tech_news_report.pdf")
+            # 调试：确保结果是三元组
+            if isinstance(result, tuple) and len(result) == 3:
+                success, pdf_data, metadata = result
 
-        # 也可以将PDF转换为base64用于传输
-        pdf_base64 = base64.b64encode(pdf_data).decode('utf-8')
-        print(f"PDF Base64 (前100字符): {pdf_base64[:100]}...")
-    else:
-        print(f"任务执行失败: {metadata.get('error', '未知错误')}")
+                if success:
+                    print(f"任务执行成功!")
+                    print(f"PDF大小: {len(pdf_data)} 字节")
+                    print(f"元数据: {json.dumps(metadata, indent=2, ensure_ascii=False)}")
+
+                    # 保存PDF到文件
+                    with open("tech_news_report.pdf", "wb") as f:
+                        f.write(pdf_data)
+                    print("PDF已保存为 tech_news_report.pdf")
+
+                    # 验证PDF数据
+                    if isinstance(pdf_data, bytes):
+                        print(f"PDF数据类型正确: bytes")
+                    else:
+                        print(f"PDF数据类型错误: {type(pdf_data)}")
+                else:
+                    print(f"任务执行失败: {metadata.get('error', '未知错误')}")
+            else:
+                print(f"错误：execute方法返回了{len(result)}个值，但预期是3个")
+                print(f"返回值类型: {type(result)}")
+
+    except Exception as e:
+        print(f"执行过程中发生错误: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
