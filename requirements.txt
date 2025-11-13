@@ -16,3 +16,4 @@ reportlab==3.6.12
 qiniu==7.14.0
 feedparser==6.0.10
 urllib3==2.0.7
+beautifulsoup4==4.12.2
