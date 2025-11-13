@@ -1591,7 +1591,7 @@ AI：```json
                     }
             elif action == "generate_tech_news_report":
                 # 返回科技新闻汇总结果
-                pdf_binary = self.tech_news_agent.execute()
+                pdf_binary = await self.tech_news_agent.execute()
                 if pdf_binary:
                     return {
                         "success": True,
@@ -2404,22 +2404,8 @@ class TechNewsTool:
 
         return balanced_articles[:total_count]
 
-    import io
-    import datetime
-    import hashlib
-    import time
-    from typing import List, Dict, Any
-    from reportlab.lib.pagesizes import letter
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, \
-        PageBreak
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
 
-    # 假设Article类已定义，包含title、source、link等属性
-    # from your_module import Article  # 根据实际情况导入
-
-    def execute(self,
+    async def execute(self,
                 enable_ai_summary: bool = None,
                 total_articles: int = None,
                 articles_per_source: int = None,
