@@ -1,4 +1,4 @@
-# 10/12 06:35
+# 11/13 16:38
 
 from dotenv import load_dotenv
 import pytz
@@ -22,7 +22,6 @@ import asyncio
 from contextlib import asynccontextmanager
 import uuid
 from datetime import datetime, timedelta
-import httpx
 
 # 加载环境变量
 load_dotenv()
@@ -128,7 +127,7 @@ async def upload_stock_file_to_Qiniu(pdf_binary: bytes, stock_name: str, at_user
         print(f"上传过程中发生错误：{str(e)}")
         return None
 
-async def upload_news_report_to_Qiniu(news_report, news_report_name: str, at_user_ids=None):
+async def upload_news_report_to_Qiniu(news_report, at_user_ids=None):
     """
     上传数据到七牛云
     :param news_report: 数据
@@ -148,12 +147,7 @@ async def upload_news_report_to_Qiniu(news_report, news_report_name: str, at_use
             return None
 
         timestamp = datetime.now().strftime("%Y%m%d")
-        remote_file_name = f"Stock_Analysis_Report_{news_report_name}_{timestamp}.pdf"
-
-        # 简单验证PDF文件头（可选，但推荐）
-        pdf_header = b'%PDF-'
-        if not news_report.startswith(pdf_header):
-            print("警告：提供的数据可能不是有效的PDF文件")
+        remote_file_name = f"Technical_News_Report_{timestamp}.pdf"
 
         # 生成上传Token
         token = q.upload_token(bucket_name, remote_file_name,
@@ -222,7 +216,7 @@ async def sync_llm_processing(conversation_id, user_input, at_user_ids):
                     # 先发送提示消息
                     await send_official_message("咨询: 📈 正在生成科技新闻汇总，请稍候...", at_user_ids=at_user_ids)
                     # 发送PDF文件
-                    await upload_news_report_to_Qiniu(news_reports, report_name, at_user_ids)
+                    await upload_news_report_to_Qiniu(news_reports, at_user_ids)
                 else:
                     error_msg = "咨询：❌ News report为空"
                     await send_official_message(error_msg, at_user_ids=at_user_ids)
@@ -353,27 +347,14 @@ async def home():
 
 @app.get("/health")
 async def health():
-    """健康检查端点（包含公网IP查询）"""
-    # 异步获取公网IP
-    public_ip = "获取失败"
-    try:
-        # 使用异步HTTP客户端调用IP查询接口
-        async with httpx.AsyncClient() as client:
-            response = await client.get("https://api.ipify.org", timeout=10)
-            if response.status_code == 200:
-                public_ip = response.text.strip()  # 提取纯IP字符串
-    except Exception as e:
-        public_ip = f"获取失败: {str(e)}"  # 捕获异常并记录原因
-
-    # 构造健康检查响应（包含IP信息）
+    """健康检查端点"""
     health_status = {
         "status": "healthy",
         "service": "dingtalk-bot",
         "timestamp": time.time(),
         "active_tasks": len(processing_tasks),
         "environment": "production",
-        "version": "1.0.0",
-        "public_ip": public_ip  # 新增：当前服务的公网出口IP
+        "version": "1.0.0"
     }
     return JSONResponse(health_status)
 
