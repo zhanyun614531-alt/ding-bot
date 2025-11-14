@@ -1568,7 +1568,7 @@ AI：```json
             elif action == "generate_news_report":
                 # 科技新闻分析工具返回PDF二进制数据
                 # pdf_binary = await self.tech_news_agent.execute(enable_ai_summary=True,total_articles = 10, articles_per_source=20)
-                pdf_binary = await tech_news.generate_tech_news_report()
+                _, pdf_binary, _ = await tech_news.generate_tech_news_report()
                 if pdf_binary:
                     return {
                         "success": True,
