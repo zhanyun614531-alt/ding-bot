@@ -1567,7 +1567,6 @@ AI：```json
                     }
             elif action == "generate_news_report":
                 # 科技新闻分析工具返回PDF二进制数据
-                # pdf_binary = await self.tech_news_agent.execute(enable_ai_summary=True,total_articles = 10, articles_per_source=20)
                 _, pdf_binary, _ = await tech_news.generate_tech_news_report()
                 if pdf_binary:
                     return {
@@ -1626,6 +1625,7 @@ AI：```json
 
                 results = []
                 stock_pdf_result = None
+                news_report_result = None
                 success_count = 0
                 failure_count = 0
 
@@ -1696,6 +1696,8 @@ AI：```json
                 # 如果有股票PDF结果，优先返回
                 if stock_pdf_result:
                     return stock_pdf_result
+                elif news_report_result:
+                    return news_report_result
                 else:
                     # 合并所有工具执行结果
                     combined_result = "\n\n".join([f"任务 {i + 1}: {result}" for i, result in enumerate(results)])
