@@ -272,83 +272,119 @@ class AsyncTechNewsTool:
         return False
 
     async def extract_article_content(self, url: str) -> str:
-        """异步从文章URL提取核心内容"""
+        """异步从文章URL提取核心内容 - 针对TechCrunch优化"""
         try:
-            content = await self._make_request(url)
+            # 针对TechCrunch使用更真实的浏览器头信息
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0',
+            }
 
-            # 如果返回403错误，尝试使用不同的User-Agent
+            content = await self._make_request(url, headers=headers)
+
+            # 如果仍然返回403，尝试使用更简单的方法
             if "403" in content or "Forbidden" in content:
-                logger.warning(f"网站返回403错误，尝试使用备用方法: {url}")
-                # 尝试使用不同的headers
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'DNT': '1',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
+                logger.warning(f"网站返回403错误，尝试使用简化方法: {url}")
+                # 使用更简单的headers
+                simple_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 }
-                content = await self._make_request(url, headers=headers)
+                content = await self._make_request(url, headers=simple_headers)
 
             soup = BeautifulSoup(content, 'html.parser')
 
             # 移除不需要的标签
-            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
+            for element in soup(
+                    ['script', 'style', 'nav', 'footer', 'header', 'aside',
+                     'iframe']):
                 element.decompose()
 
-            # 尝试多种内容提取策略
-            extracted_content = ""
-            article_selectors = [
-                'article',
+            # 针对TechCrunch的特殊选择器
+            techcrunch_selectors = [
+                'article .article-content',
+                'article .entry-content',
+                'article .post-content',
                 '.article-content',
-                '.post-content',
                 '.entry-content',
-                '.story-content',
-                '.content',
-                'main',
-                '[class*="article"]',
-                '[class*="content"]',
-                '[class*="post"]'
+                '.post-content',
+                'article',
+                '.content-area',
+                '.single-content',
+                '[data-testid="article-content"]',
+                'main article'
             ]
 
-            for selector in article_selectors:
+            extracted_content = ""
+
+            for selector in techcrunch_selectors:
                 article_element = soup.select_one(selector)
                 if article_element:
-                    paragraphs = article_element.find_all(['p', 'h1', 'h2', 'h3'])
+                    # 提取段落文本
+                    paragraphs = article_element.find_all(
+                        ['p', 'h1', 'h2', 'h3', 'h4'])
                     text_content = []
                     for p in paragraphs:
                         text = p.get_text(strip=True)
-                        if len(text) > 50:
+                        # 过滤掉太短的段落和广告内容
+                        if len(text) > 30 and not any(
+                                word in text.lower() for word in
+                                ['advertisement', 'sponsored', 'subscribe']):
                             text_content.append(text)
 
                     if text_content:
-                        extracted_content = " ".join(text_content[:8])
+                        extracted_content = " ".join(
+                            text_content[:10])  # 取前10段
+                        logger.info(
+                            f"使用选择器 '{selector}' 成功提取内容，长度: {len(extracted_content)}")
                         break
 
-            # 策略2: 如果没找到特定标签，提取所有段落
+            # 备用策略：如果没找到特定标签，提取所有有意义的段落
             if not extracted_content or len(extracted_content) < 200:
+                logger.info("使用备用策略提取内容")
                 all_paragraphs = soup.find_all('p')
                 paragraph_texts = []
                 for p in all_paragraphs:
                     text = p.get_text(strip=True)
-                    if len(text) > 100:
+                    # 过滤条件
+                    if (len(text) > 50 and
+                            len(text) < 2000 and
+                            not any(word in text.lower() for word in
+                                    ['advertisement', 'sponsored', 'subscribe',
+                                     'sign up', 'newsletter'])):
                         paragraph_texts.append(text)
 
                 if paragraph_texts:
-                    extracted_content = " ".join(paragraph_texts[:6])
+                    extracted_content = " ".join(paragraph_texts[:8])
+                    logger.info(
+                        f"备用策略提取内容成功，长度: {len(extracted_content)}")
 
-            # 清理内容
+            # 最终清理
             if extracted_content:
+                # 移除多余空格和换行
                 extracted_content = re.sub(r'\s+', ' ', extracted_content)
-                if len(extracted_content) > 1500:
-                    extracted_content = extracted_content[:1497] + "..."
+                # 限制长度
+                if len(extracted_content) > 2000:
+                    extracted_content = extracted_content[:1997] + "..."
 
-            return extracted_content if extracted_content else "无法提取文章内容"
+                logger.info(f"最终提取内容长度: {len(extracted_content)}")
+                return extracted_content
+            else:
+                logger.warning("无法提取文章内容，返回描述信息")
+                return "文章内容受访问限制，无法直接提取。请点击链接查看原文。"
 
         except Exception as e:
             logger.error(f"提取文章内容失败 {url}: {e}")
-            return f"提取内容时出错: {str(e)}"
+            return f"内容提取受限: {str(e)}。请直接访问链接查看原文。"
 
     async def generate_bilingual_summary(self, title: str, content: str) -> Dict[str, str]:
         """异步使用豆包LLM生成中英文双语摘要"""
@@ -451,42 +487,63 @@ class AsyncTechNewsTool:
         return english_chars / max(len(text), 1) > 0.7 and not self._is_mostly_chinese(text)
 
     async def fetch_techcrunch(self, max_articles: int = 15) -> List[Article]:
-        """异步获取TechCrunch头条"""
+        """异步获取TechCrunch头条 - 优化版本"""
         articles = []
         logger.info("正在尝试从TechCrunch获取新闻...")
 
+        # 尝试多个RSS源
         rss_urls = [
             "https://techcrunch.com/feed/",
             "http://feeds.feedburner.com/TechCrunch/",
+            "https://feeds.feedburner.com/TechCrunch/",
         ]
 
         for rss_url in rss_urls:
             try:
                 logger.info(f"尝试RSS源: {rss_url}")
-                content = await self._make_request(rss_url)
+                # 为RSS请求也添加headers
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'application/rss+xml,application/xml,text/xml'
+                }
+
+                content = await self._make_request(rss_url, headers=headers)
 
                 feed = feedparser.parse(content)
                 if feed.entries:
-                    logger.info(f"TechCrunch: 成功获取到 {len(feed.entries)} 条新闻")
+                    logger.info(
+                        f"TechCrunch: 成功获取到 {len(feed.entries)} 条新闻")
 
                     for entry in feed.entries[:max_articles]:
-                        if self.is_tech_related(entry.title, entry.get('summary', '')):
+                        if self.is_tech_related(entry.title,
+                                                entry.get('summary', '')):
                             article = Article(
                                 title=entry.title,
                                 link=entry.link,
                                 source='TechCrunch',
-                                description=entry.get('summary', '')
+                                description=entry.get('summary', '')[
+                                                :200] + "..." if entry.get(
+                                    'summary') else ""
                             )
                             articles.append(article)
 
                             if len(articles) >= max_articles:
                                 break
 
-                    logger.info(f"TechCrunch: 过滤后保留 {len(articles)} 条科技新闻")
+                    logger.info(
+                        f"TechCrunch: 过滤后保留 {len(articles)} 条科技新闻")
                     break
+                else:
+                    logger.warning(f"RSS源 {rss_url} 没有获取到条目")
 
             except Exception as e:
-                logger.error(f"TechCrunch RSS源失败: {e}")
+                logger.error(f"TechCrunch RSS源失败 {rss_url}: {e}")
+                continue
+
+        # 如果RSS都失败，提供一个备用的文章列表
+        if not articles:
+            logger.warning("所有RSS源都失败，提供备用TechCrunch文章")
+            # 这里可以添加一些硬编码的TechCrunch热门文章链接作为备用
 
         logger.info(f"TechCrunch处理完成，共 {len(articles)} 条科技新闻")
         return articles
