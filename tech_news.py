@@ -28,6 +28,7 @@ from reportlab.pdfbase.pdfmetrics import registerFontFamily
 import os
 from dotenv import load_dotenv
 import base64
+import brotli
 
 # 加载环境变量
 load_dotenv()
@@ -48,8 +49,8 @@ class TechNewsToolConfig:
     enable_ai_summary: bool = True
     total_articles: int = 10
     articles_per_source: int = 8
-    request_timeout: int = 15
-    delay_between_requests: float = 2.0
+    request_timeout: int = 30  # 增加超时时间
+    delay_between_requests: float = 3.0  # 增加请求间隔
 
 
 @dataclass
@@ -214,10 +215,33 @@ class AsyncTechNewsTool:
             # 即使字体注册失败，我们仍然继续，让ReportLab使用默认字体
 
     async def __aenter__(self):
-        """异步上下文管理器入口"""
+        """异步上下文管理器入口 - 针对Render优化"""
+        # 创建自定义TCP连接器，优化跨境连接
+        connector = aiohttp.TCPConnector(
+            ssl=False,
+            limit=20,  # 增加连接限制
+            limit_per_host=5,  # 增加每主机连接数
+            use_dns_cache=True,
+            ttl_dns_cache=300,
+            keepalive_timeout=30
+        )
+
+        timeout = aiohttp.ClientTimeout(
+            total=self.config.request_timeout,
+            connect=15,
+            sock_read=25
+        )
+
         self.session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=self.config.request_timeout),
-            connector=aiohttp.TCPConnector(ssl=False)  # 禁用SSL验证
+            timeout=timeout,
+            connector=connector,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',  # 移除br以避免brotli问题
+                'Cache-Control': 'no-cache'
+            }
         )
         return self
 
@@ -228,32 +252,79 @@ class AsyncTechNewsTool:
 
     async def _make_request(self, url: str, method: str = "GET",
                             headers: Dict = None, data: Any = None) -> str:
-        """异步HTTP请求"""
+        """异步HTTP请求 - 针对国外网站优化"""
         if not self.session:
             logger.error(f"Session未初始化，无法请求 {url}")
-            raise RuntimeError(
-                "Session not initialized. Use async context manager.")
+            raise RuntimeError("Session not initialized. Use async context manager.")
 
-        try:
-            request_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Encoding': 'gzip, deflate'  # 明确指定接受的编码，排除brotli
-            }
-            if headers:
-                request_headers.update(headers)
+        max_retries = 3
+        retry_delay = 2.0
 
-            logger.info(f"正在请求: {url}")
-            async with self.session.request(method, url,
-                                            headers=request_headers, data=data,
-                                            ssl=False) as response:
-                response.raise_for_status()
-                content = await response.text()
-                logger.info(f"请求成功: {url}, 状态码: {response.status}")
-                return content
+        for attempt in range(max_retries):
+            try:
+                # 合并headers
+                request_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Encoding': 'gzip, deflate',  # 明确排除brotli
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Cache-Control': 'no-cache',
+                    'DNT': '1',
+                    'Upgrade-Insecure-Requests': '1'
+                }
+                if headers:
+                    request_headers.update(headers)
 
-        except Exception as e:
-            logger.error(f"HTTP请求失败 {url}: {e}")
-            raise
+                logger.info(f"正在请求: {url} (尝试 {attempt + 1}/{max_retries})")
+
+                async with self.session.request(method, url,
+                                                headers=request_headers,
+                                                data=data,
+                                                ssl=False) as response:
+
+                    # 检查状态码
+                    if response.status == 403:
+                        logger.warning(f"网站返回403错误，尝试更换方法: {url}")
+                        # 更换User-Agent重试
+                        request_headers[
+                            'User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        continue
+
+                    response.raise_for_status()
+
+                    # 读取内容
+                    content = await response.text()
+                    logger.info(f"请求成功: {url}, 状态码: {response.status}")
+                    return content
+
+            except aiohttp.ClientResponseError as e:
+                logger.error(f"HTTP响应错误 {url}: {e.status} - {e.message}")
+                if e.status in [429, 500, 502, 503]:  # 可重试的错误
+                    if attempt < max_retries - 1:
+                        logger.info(f"等待 {retry_delay} 秒后重试...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 1.5  # 指数退避
+                        continue
+                raise
+
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as e:
+                logger.error(f"连接错误 {url}: {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"等待 {retry_delay} 秒后重试...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 1.5
+                    continue
+                raise
+
+            except Exception as e:
+                logger.error(f"请求失败 {url}: {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"等待 {retry_delay} 秒后重试...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 1.5
+                    continue
+                raise
+
+        raise Exception(f"所有 {max_retries} 次尝试都失败了")
 
     def is_tech_related(self, title: str, description: str = "") -> bool:
         """判断文章是否与前沿科技相关"""
@@ -272,115 +343,93 @@ class AsyncTechNewsTool:
         return False
 
     async def extract_article_content(self, url: str) -> str:
-        """异步从文章URL提取核心内容 - 针对TechCrunch优化"""
+        """异步从文章URL提取核心内容 - 针对国外网站优化"""
         try:
-            # 针对TechCrunch使用更真实的浏览器头信息
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Cache-Control': 'max-age=0',
-            }
+            # 针对不同网站使用不同的headers策略
+            if 'techcrunch.com' in url:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Referer': 'https://techcrunch.com/',
+                    'DNT': '1'
+                }
+            elif 'wired.com' in url:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                    'Referer': 'https://www.wired.com/',
+                    'DNT': '1'
+                }
+            else:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                }
 
             content = await self._make_request(url, headers=headers)
 
-            # 如果仍然返回403，尝试使用更简单的方法
-            if "403" in content or "Forbidden" in content:
-                logger.warning(f"网站返回403错误，尝试使用简化方法: {url}")
-                # 使用更简单的headers
-                simple_headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                }
-                content = await self._make_request(url, headers=simple_headers)
+            # 如果内容被屏蔽，返回友好的错误信息
+            if "access denied" in content.lower() or "blocked" in content.lower():
+                logger.warning(f"内容访问被屏蔽: {url}")
+                return "由于网站访问限制，无法直接提取内容。请点击链接查看原文。"
 
             soup = BeautifulSoup(content, 'html.parser')
 
             # 移除不需要的标签
-            for element in soup(
-                    ['script', 'style', 'nav', 'footer', 'header', 'aside',
-                     'iframe']):
+            for element in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe']):
                 element.decompose()
 
-            # 针对TechCrunch的特殊选择器
-            techcrunch_selectors = [
-                'article .article-content',
-                'article .entry-content',
-                'article .post-content',
-                '.article-content',
-                '.entry-content',
-                '.post-content',
+            # 针对不同网站的特定内容选择器
+            content_selectors = [
                 'article',
-                '.content-area',
-                '.single-content',
-                '[data-testid="article-content"]',
-                'main article'
+                '.article-content',
+                '.post-content',
+                '.entry-content',
+                '.story-content',
+                '.content',
+                'main',
+                '[class*="article"]',
+                '[class*="content"]',
+                '[class*="post"]'
             ]
 
             extracted_content = ""
-
-            for selector in techcrunch_selectors:
+            for selector in content_selectors:
                 article_element = soup.select_one(selector)
                 if article_element:
-                    # 提取段落文本
-                    paragraphs = article_element.find_all(
-                        ['p', 'h1', 'h2', 'h3', 'h4'])
+                    paragraphs = article_element.find_all(['p', 'h1', 'h2', 'h3'])
                     text_content = []
                     for p in paragraphs:
                         text = p.get_text(strip=True)
-                        # 过滤掉太短的段落和广告内容
-                        if len(text) > 30 and not any(
-                                word in text.lower() for word in
-                                ['advertisement', 'sponsored', 'subscribe']):
+                        if len(text) > 50 and not any(word in text.lower() for word in
+                                                      ['advertisement', 'sponsored', 'subscribe']):
                             text_content.append(text)
 
                     if text_content:
-                        extracted_content = " ".join(
-                            text_content[:10])  # 取前10段
-                        logger.info(
-                            f"使用选择器 '{selector}' 成功提取内容，长度: {len(extracted_content)}")
+                        extracted_content = " ".join(text_content[:8])
                         break
 
-            # 备用策略：如果没找到特定标签，提取所有有意义的段落
+            # 备用策略
             if not extracted_content or len(extracted_content) < 200:
-                logger.info("使用备用策略提取内容")
                 all_paragraphs = soup.find_all('p')
                 paragraph_texts = []
                 for p in all_paragraphs:
                     text = p.get_text(strip=True)
-                    # 过滤条件
-                    if (len(text) > 50 and
-                            len(text) < 2000 and
-                            not any(word in text.lower() for word in
-                                    ['advertisement', 'sponsored', 'subscribe',
-                                     'sign up', 'newsletter'])):
+                    if len(text) > 100 and len(text) < 2000:
                         paragraph_texts.append(text)
 
                 if paragraph_texts:
-                    extracted_content = " ".join(paragraph_texts[:8])
-                    logger.info(
-                        f"备用策略提取内容成功，长度: {len(extracted_content)}")
+                    extracted_content = " ".join(paragraph_texts[:6])
 
-            # 最终清理
+            # 清理内容
             if extracted_content:
-                # 移除多余空格和换行
                 extracted_content = re.sub(r'\s+', ' ', extracted_content)
-                # 限制长度
-                if len(extracted_content) > 2000:
-                    extracted_content = extracted_content[:1997] + "..."
+                if len(extracted_content) > 1500:
+                    extracted_content = extracted_content[:1497] + "..."
 
-                logger.info(f"最终提取内容长度: {len(extracted_content)}")
-                return extracted_content
-            else:
-                logger.warning("无法提取文章内容，返回描述信息")
-                return "文章内容受访问限制，无法直接提取。请点击链接查看原文。"
+            return extracted_content if extracted_content else "由于网站访问限制，无法直接提取内容。请点击链接查看原文。"
 
         except Exception as e:
             logger.error(f"提取文章内容失败 {url}: {e}")
@@ -491,17 +540,15 @@ class AsyncTechNewsTool:
         articles = []
         logger.info("正在尝试从TechCrunch获取新闻...")
 
-        # 尝试多个RSS源
         rss_urls = [
             "https://techcrunch.com/feed/",
             "http://feeds.feedburner.com/TechCrunch/",
-            "https://feeds.feedburner.com/TechCrunch/",
         ]
 
         for rss_url in rss_urls:
             try:
                 logger.info(f"尝试RSS源: {rss_url}")
-                # 为RSS请求也添加headers
+                # 为RSS请求添加特定headers
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Accept': 'application/rss+xml,application/xml,text/xml'
@@ -511,27 +558,22 @@ class AsyncTechNewsTool:
 
                 feed = feedparser.parse(content)
                 if feed.entries:
-                    logger.info(
-                        f"TechCrunch: 成功获取到 {len(feed.entries)} 条新闻")
+                    logger.info(f"TechCrunch: 成功获取到 {len(feed.entries)} 条新闻")
 
                     for entry in feed.entries[:max_articles]:
-                        if self.is_tech_related(entry.title,
-                                                entry.get('summary', '')):
+                        if self.is_tech_related(entry.title, entry.get('summary', '')):
                             article = Article(
                                 title=entry.title,
                                 link=entry.link,
                                 source='TechCrunch',
-                                description=entry.get('summary', '')[
-                                                :200] + "..." if entry.get(
-                                    'summary') else ""
+                                description=entry.get('summary', '')[:200] + "..." if entry.get('summary') else ""
                             )
                             articles.append(article)
 
                             if len(articles) >= max_articles:
                                 break
 
-                    logger.info(
-                        f"TechCrunch: 过滤后保留 {len(articles)} 条科技新闻")
+                    logger.info(f"TechCrunch: 过滤后保留 {len(articles)} 条科技新闻")
                     break
                 else:
                     logger.warning(f"RSS源 {rss_url} 没有获取到条目")
@@ -540,12 +582,10 @@ class AsyncTechNewsTool:
                 logger.error(f"TechCrunch RSS源失败 {rss_url}: {e}")
                 continue
 
-        # 如果RSS都失败，提供一个备用的文章列表
+        # 如果所有RSS源都失败，提供基础功能
         if not articles:
-            logger.warning("所有RSS源都失败，提供备用TechCrunch文章")
-            # 这里可以添加一些硬编码的TechCrunch热门文章链接作为备用
+            logger.warning("所有TechCrunch RSS源都失败，返回空列表")
 
-        logger.info(f"TechCrunch处理完成，共 {len(articles)} 条科技新闻")
         return articles
 
     async def fetch_wired(self, max_articles: int = 15) -> List[Article]:
@@ -1097,37 +1137,20 @@ class AsyncTechNewsTool:
                       total_articles: int = None,
                       articles_per_source: int = None,
                       sources: List[str] = None) -> Tuple[bool, bytes, Dict[str, Any]]:
-        """
-        异步执行科技新闻获取任务并返回PDF二进制数据
-
-        Args:
-            enable_ai_summary: 是否启用AI摘要
-            total_articles: 总文章数量
-            articles_per_source: 每个来源获取的文章数量
-            sources: 指定新闻来源
-
-        Returns:
-            Tuple[bool, bytes, Dict[str, Any]]:
-                - 成功状态
-                - PDF二进制数据
-                - 元数据信息
-        """
+        """异步执行科技新闻获取任务 - 针对Render优化"""
         # 使用配置值或参数值
         enable_ai_summary = enable_ai_summary if enable_ai_summary is not None else self.config.enable_ai_summary
         total_articles = total_articles if total_articles is not None else self.config.total_articles
         articles_per_source = articles_per_source if articles_per_source is not None else self.config.articles_per_source
 
-        # 默认使用所有来源
         if sources is None:
             sources = ['TechCrunch', 'Wired', '36Kr', 'MIT']
 
         logger.info(f"开始执行科技新闻获取任务: enable_ai_summary={enable_ai_summary}, "
-                    f"total_articles={total_articles}, articles_per_source={articles_per_source}, "
-                    f"sources={sources}")
+                   f"total_articles={total_articles}, articles_per_source={articles_per_source}, "
+                   f"sources={sources}")
 
         all_articles = []
-
-        # 从各来源获取文章
         source_fetchers = {
             'TechCrunch': self.fetch_techcrunch,
             'Wired': self.fetch_wired,
@@ -1137,7 +1160,7 @@ class AsyncTechNewsTool:
 
         source_results = {}
 
-        # 顺序执行所有来源的获取任务
+        # 顺序执行所有来源的获取任务，增加延迟
         for source_name in sources:
             if source_name in source_fetchers:
                 logger.info(f"正在从 {source_name} 获取新闻...")
@@ -1147,8 +1170,8 @@ class AsyncTechNewsTool:
                     all_articles.extend(articles)
                     logger.info(f"✅ {source_name}: 成功获取 {len(articles)} 篇文章")
 
-                    # 添加延迟避免请求过于频繁
-                    await asyncio.sleep(1.0)
+                    # 增加延迟避免请求过于频繁
+                    await asyncio.sleep(3.0)  # 增加到3秒
 
                 except Exception as e:
                     logger.error(f"❌ {source_name}: 获取失败 - {e}")
@@ -1385,7 +1408,8 @@ async def main():
             enable_ai_summary=True,
             total_articles=5,
             articles_per_source=4,
-            request_timeout=30
+            request_timeout=30,  # 增加超时
+            delay_between_requests=3.0  # 增加延迟
         )
 
         async with AsyncTechNewsTool(config) as tech_news_tool:
@@ -1394,7 +1418,7 @@ async def main():
                 enable_ai_summary=True,
                 total_articles=5,
                 articles_per_source=4,
-                sources=['TechCrunch', 'Wired']
+                sources=['TechCrunch', 'Wired', 'Wired']
             )
 
             # 调试：确保结果是三元组
