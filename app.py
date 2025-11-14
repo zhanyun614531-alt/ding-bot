@@ -188,7 +188,7 @@ async def sync_llm_processing(conversation_id, user_input, at_user_ids):
 
         # 正确等待异步函数
         result = await agent_tools.smart_assistant(user_input)
-        print("result, 成功到达第一步")
+
         if result:
             # 处理不同类型的返回结果
             if isinstance(result, dict) and result.get("type") == "stock_pdf" and result.get("success"):
@@ -210,9 +210,8 @@ async def sync_llm_processing(conversation_id, user_input, at_user_ids):
                 # 处理科技新闻PDF结果
                 pdf_binary = result.get("pdf_binary")
                 message = result.get("message", "科技新闻报告生成完成")
-                
+
                 if pdf_binary:
-                    print("pdf_binary, 成功到达第二步")
                     # 先发送提示消息
                     await send_official_message("咨询: 📈 正在生成科技新闻报告PDF，请稍候...", at_user_ids=at_user_ids)
                     # 发送PDF文件
