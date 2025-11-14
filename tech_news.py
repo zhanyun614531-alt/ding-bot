@@ -226,21 +226,26 @@ class AsyncTechNewsTool:
         if self.session:
             await self.session.close()
 
-    async def _make_request(self, url: str, method: str = "GET", headers: Dict = None, data: Any = None) -> str:
+    async def _make_request(self, url: str, method: str = "GET",
+                            headers: Dict = None, data: Any = None) -> str:
         """异步HTTP请求"""
         if not self.session:
             logger.error(f"Session未初始化，无法请求 {url}")
-            raise RuntimeError("Session not initialized. Use async context manager.")
+            raise RuntimeError(
+                "Session not initialized. Use async context manager.")
 
         try:
             request_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Encoding': 'gzip, deflate'  # 明确指定接受的编码，排除brotli
             }
             if headers:
                 request_headers.update(headers)
 
             logger.info(f"正在请求: {url}")
-            async with self.session.request(method, url, headers=request_headers, data=data, ssl=False) as response:
+            async with self.session.request(method, url,
+                                            headers=request_headers, data=data,
+                                            ssl=False) as response:
                 response.raise_for_status()
                 content = await response.text()
                 logger.info(f"请求成功: {url}, 状态码: {response.status}")
