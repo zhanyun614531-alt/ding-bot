@@ -1254,55 +1254,63 @@ class AsyncTechNewsTool:
 
 
 # 使用示例 - 专门为Render平台设计
-async def generate_tech_news_pdf(
+# 建议使用统一的函数名
+async def generate_tech_news_report(
         enable_ai_summary: bool = True,
         total_articles: int = 10,
         articles_per_source: int = 8,
-        sources: List[str] = None
+        sources: List[str] = None,
+        doubao_api_key: Optional[str] = None,
+        doubao_base_url: Optional[str] = None
 ) -> Tuple[bool, bytes, Dict[str, Any]]:
     """
-    生成科技新闻PDF的主函数，适合在Render平台上部署
+    生成科技新闻PDF报告的主入口函数
 
     Args:
         enable_ai_summary: 是否启用AI摘要
         total_articles: 总文章数量
         articles_per_source: 每个来源文章数量
         sources: 新闻来源列表
+        doubao_api_key: 豆包API密钥
+        doubao_base_url: 豆包API基础URL
 
     Returns:
-        Tuple[bool, bytes, Dict]: 成功状态, PDF二进制数据, 元数据
+        Tuple[bool, bytes, Dict]:
+            - 成功状态
+            - PDF二进制数据
+            - 元数据信息
     """
-    try:
-        # 创建配置
-        config = TechNewsToolConfig(
-            doubao_api_key=os.environ.get("ARK_API_KEY"),
-            doubao_base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
-            enable_ai_summary=enable_ai_summary,
-            total_articles=total_articles,
-            articles_per_source=articles_per_source,
-            request_timeout=30,  # Render平台上增加超时时间
-            delay_between_requests=1.0  # 减少延迟以避免超时
-        )
+    # 设置默认值
+    if doubao_api_key is None:
+        doubao_api_key = os.environ.get("ARK_API_KEY")
 
+    if doubao_base_url is None:
+        doubao_base_url = "https://ark.cn-beijing.volces.com/api/v3/bots"
+
+    if sources is None:
+        sources = ['TechCrunch', 'Wired', '36Kr', 'MIT']
+
+    # 创建配置
+    config = TechNewsToolConfig(
+        doubao_api_key=os.environ.get("ARK_API_KEY"),
+        doubao_base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
+        enable_ai_summary=enable_ai_summary,
+        total_articles=total_articles,
+        articles_per_source=articles_per_source,
+        request_timeout=30
+    )
+
+    try:
         # 使用异步上下文管理器
         async with AsyncTechNewsTool(config) as tech_news_tool:
-            result = await tech_news_tool.execute(
+            return await tech_news_tool.execute(
                 enable_ai_summary=enable_ai_summary,
                 total_articles=total_articles,
                 articles_per_source=articles_per_source,
                 sources=sources
             )
-
-            # 确保只返回三个值
-            if len(result) == 3:
-                return result
-            else:
-                # 如果返回了更多值，只取前三个
-                logger.warning(f"execute方法返回了{len(result)}个值，但预期是3个")
-                return result[0], result[1], result[2] if len(result) > 2 else {}
-
     except Exception as e:
-        logger.error(f"生成PDF过程中发生错误: {e}")
+        logger.error(f"生成科技新闻报告失败: {e}")
         return False, b"", {"error": str(e)}
 
 # 异步使用示例
