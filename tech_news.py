@@ -1373,4 +1373,4 @@ async def main():
 
 if __name__ == "__main__":
     # 运行异步主函数
-    asyncio.run(main())
+    asyncio.run(main())  # 使用 asyncio.run() 启动异步事件循环
