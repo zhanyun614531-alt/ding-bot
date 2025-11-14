@@ -216,7 +216,7 @@ async def sync_llm_processing(conversation_id, user_input, at_user_ids):
                     await send_official_message("咨询: 📈 正在生成科技新闻报告PDF，请稍候...", at_user_ids=at_user_ids)
                     # 发送PDF文件
                     # await send_pdf_via_dingtalk(pdf_binary, stock_name, at_user_ids)
-                    await upload_stock_file_to_Qiniu(pdf_binary, at_user_ids)
+                    await upload_news_report_to_Qiniu(pdf_binary, at_user_ids)
                 else:
                     error_msg = "咨询：❌ PDF二进制数据为空"
                     await send_official_message(error_msg, at_user_ids=at_user_ids)
