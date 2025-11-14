@@ -1043,18 +1043,6 @@ class DeepseekAgent:
         # 初始化股票分析代理
         self.stock_agent = StockAnalysisPDFAgent()
 
-        # 初始化科技新闻分析代理
-        config = tech_news.TechNewsToolConfig(
-            doubao_api_key=os.environ.get("ARK_API_KEY"),
-            doubao_base_url="https://ark.cn-beijing.volces.com/api/v3/bots",
-            enable_ai_summary=True,
-            total_articles=10,
-            articles_per_source=20,
-            request_timeout=30,  # Render平台上增加超时时间
-            delay_between_requests=1.0  # 减少延迟以避免超时
-        )
-        self.tech_news_agent = tech_news.AsyncTechNewsTool(config)
-
         # 更新系统提示词 - 支持多个任务
         self.system_prompt = """你是一个智能助手，具备工具调用能力。当用户请求涉及日历、任务、邮件或股票分析时，你需要返回JSON格式的工具调用。
 
@@ -1579,7 +1567,8 @@ AI：```json
                     }
             elif action == "generate_news_report":
                 # 科技新闻分析工具返回PDF二进制数据
-                pdf_binary = await self.tech_news_agent.execute(enable_ai_summary=True,total_articles = 10, articles_per_source=20)
+                # pdf_binary = await self.tech_news_agent.execute(enable_ai_summary=True,total_articles = 10, articles_per_source=20)
+                pdf_binary = await tech_news.generate_tech_news_report()
                 if pdf_binary:
                     return {
                         "success": True,
