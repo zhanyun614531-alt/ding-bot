@@ -1164,8 +1164,7 @@ class AsyncTechNewsTool:
             logger.info(f"科技新闻获取任务完成，共获取 {len(final_articles)} 篇文章，生成PDF大小: {len(pdf_data)} 字节")
 
             # 关键修复：确保返回的是三个值的元组
-            # return (True, pdf_data, metadata)
-            return pdf_data
+            return (True, pdf_data, metadata)
 
         except Exception as e:
             logger.error(f"任务执行失败: {e}")
